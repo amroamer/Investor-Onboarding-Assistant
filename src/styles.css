@@ -1,0 +1,114 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-agent: var(--agent);
+  --color-agent-foreground: var(--agent-foreground);
+  --color-investor: var(--investor);
+  --color-investor-foreground: var(--investor-foreground);
+  --color-attention: var(--attention);
+  --color-attention-foreground: var(--attention-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+:root {
+  --radius: 0.5rem;
+
+  /* MGX surfaces */
+  --background: #ffffff;
+  --foreground: #00004b;
+
+  --surface: #ffffff;
+  --surface-muted: #ededf2;
+
+  --card: #ffffff;
+  --card-foreground: #00004b;
+
+  --popover: #ffffff;
+  --popover-foreground: #00004b;
+
+  /* MGX deep navy — dominant brand color */
+  --primary: #00004b;
+  --primary-foreground: #ffffff;
+
+  --secondary: #ededf2;
+  --secondary-foreground: #00004b;
+
+  --muted: #ededf2;
+  --muted-foreground: #4e6079;
+
+  /* MGX teal — CTAs, positive signals */
+  --accent: #009dab;
+  --accent-foreground: #ffffff;
+
+  --destructive: #d91010;
+  --destructive-foreground: #ffffff;
+
+  --border: #dddde3;
+  --input: #dddde3;
+  /* MGX cyan glow — reserved for focus rings only */
+  --ring: #60f0ff;
+
+  /* Chat surfaces (existing semantics: investor = user-side bubble, agent = AI-side surface) */
+  --agent: #ffffff;
+  --agent-foreground: #00004b;
+  --investor: #00004b;
+  --investor-foreground: #ffffff;
+
+  /* Status semantics */
+  --attention: #ac42ff;
+  --attention-foreground: #ffffff;
+  --success: #009dab;
+  --success-foreground: #ffffff;
+}
+
+@layer base {
+  * { border-color: var(--color-border); }
+  html, body, #root { height: 100%; }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4 { letter-spacing: -0.015em; }
+}
+
+/* Subtle scrollbar */
+.scroll-elegant::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-elegant::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--color-foreground) 12%, transparent);
+  border-radius: 8px;
+}
+.scroll-elegant::-webkit-scrollbar-track { background: transparent; }

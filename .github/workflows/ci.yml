@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --include=optional
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint . --max-warnings=0
+        continue-on-error: true
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build (client + server bundles)
+        # Build needs a DATABASE_URL referenced by drizzle.config.ts even though
+        # we never connect to it during compilation.
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+          ANTHROPIC_API_KEY: sk-ant-placeholder
+        run: npm run build
+
+  # End-to-end tests run separately because they need a real Anthropic API key
+  # (uploads call Claude vision + classification). Configure ANTHROPIC_API_KEY
+  # as a repo secret to enable this job, then trigger via the Actions tab or a
+  # push to the `e2e` branch.
+  e2e:
+    if: github.ref == 'refs/heads/e2e' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: ci
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ioa
+          POSTGRES_PASSWORD: ioa
+          POSTGRES_DB: ioa
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ioa -d ioa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --include=optional
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        env:
+          DATABASE_URL: postgresql://ioa:ioa@localhost:5432/ioa
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          node migrate.mjs
+          npm run db:seed
+          npm run build
+
+      - name: Start server
+        env:
+          DATABASE_URL: postgresql://ioa:ioa@localhost:5432/ioa
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PORT: "3000"
+        run: |
+          node serve.mjs &
+          for i in {1..30}; do
+            if curl -sf http://localhost:3000/ > /dev/null; then break; fi
+            sleep 1
+          done
+
+      - name: Run Playwright
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

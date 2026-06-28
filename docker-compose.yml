@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ioa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ioa
+      POSTGRES_PASSWORD: ioa
+      POSTGRES_DB: ioa
+    ports:
+      - "5432:5432"
+    volumes:
+      - ioa-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ioa -d ioa"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ioa-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://ioa:ioa@postgres:5432/ioa
+      UPLOAD_DIR: /app/uploads
+      PORT: "3000"
+      NODE_ENV: production
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      AGENT_TYPE: ${AGENT_TYPE:-rule}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./uploads:/app/uploads
+
+volumes:
+  ioa-postgres-data:
