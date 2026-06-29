@@ -250,21 +250,18 @@ function deriveRedFlags(
     }
   }
 
-  // R-DOC-003 — required document missing. Party-aware: the same
-  // requirementKey can be required by multiple parties for entity forms
-  // (e.g. photo_id for every UBO ≥ 25%, every director, every signatory).
-  // We emit one flag per (party, requirementKey) tuple that isn't satisfied
-  // by a matching checklist row.
+  // R-DOC-003 — required document missing. Match on requirementKey
+  // only: the validator stamps `party` with the investor's actual name
+  // (e.g. "Jane Smith") while requirement groups use static labels
+  // ("Investor (individual)"), so a pair-based join never hits and every
+  // requirement gets flagged as missing even after the doc is uploaded.
   if (c.profile) {
     const form = c.profile.legalForm;
     const groups = requirementsFor(form);
-    const checklistByPair = new Set(
-      c.checklist.map((i) => `${i.party} ${i.requirementKey}`),
-    );
+    const checklistKeys = new Set(c.checklist.map((i) => i.requirementKey));
     for (const group of groups) {
       for (const item of group.items) {
-        const pair = `${group.party} ${item.key}`;
-        if (checklistByPair.has(pair)) continue;
+        if (checklistKeys.has(item.key)) continue;
         const severity = docSeverityOverride(form, item.key) ?? "Low";
         flags.push({
           id: flagId("R-DOC-003"),

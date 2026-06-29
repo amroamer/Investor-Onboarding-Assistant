@@ -26,6 +26,7 @@ import {
   searchOpenSanctions,
   schemaForPartyType,
   OPENSANCTIONS_PROVIDER,
+  hasOpenSanctionsKey,
 } from "../opensanctions";
 import {
   type StepperComplianceState,
@@ -219,12 +220,17 @@ export function applyMarkRfiResolved(state: StepperComplianceState, rfiId: strin
 export const getStepperComplianceState = createServerFn({ method: "GET" })
   .validator((d: { caseId: string }) => d)
   .handler(async ({ data }): Promise<StepperComplianceState> => {
-    const existing = await loadComplianceState(data.caseId);
-    if (existing) return existing;
-    // Lazy initialise — happens for cases that existed before this feature
-    // shipped, or for any in-progress case the reviewer opens before submission.
+    // Always re-derive on read so a fix to the derivation rules (weights,
+    // missing-doc matching, etc.) takes effect for cases that were submitted
+    // under the old code without forcing a resubmit. The existing row, if
+    // any, is passed through as `previous` so screening results and the RFI
+    // thread are preserved across the re-derive.
     const c = await loadCase(data.caseId);
-    return await initialiseComplianceForCase(c);
+    const existing = await loadComplianceState(data.caseId);
+    const recomputed = deriveComplianceState(c, {
+      previous: existing ?? undefined,
+    });
+    return await upsertComplianceState(recomputed);
   });
 
 export const syncStepperScreeningList = createServerFn({ method: "POST" })
@@ -249,6 +255,16 @@ export const runStepperScreening = createServerFn({ method: "POST" })
     let c = await loadCase(data.caseId);
     const previous = (await loadComplianceState(data.caseId)) ?? emptyStepperComplianceState(c.caseId);
     let names = buildNamesToScreen(c, previous.namesToScreen);
+
+    // Pre-flight: if the OpenSanctions API key isn't configured, fail fast
+    // with one clear audit event rather than N×"401 Unauthorized" entries.
+    if (!hasOpenSanctionsKey()) {
+      const message =
+        "OpenSanctions API key not configured. Set OPENSANCTIONS_API_KEY in your .env (see https://www.opensanctions.org/api/) to run screening.";
+      c = appendAudit(c, "Screening configuration missing", message, "System");
+      await persistCase(c);
+      throw new Error(message);
+    }
 
     const screenedAt = now();
     const newAudit: StepperAuditEvent[] = [];
@@ -371,4 +387,66 @@ export const markStepperRfiResolved = createServerFn({ method: "POST" })
       appendAudit(c, "RFI resolved", data.note ?? "Marked resolved by compliance officer."),
     );
     return persisted;
+  });
+
+/* ─── Reviewer decisions + flag actions ────────────────────────────────── */
+
+/**
+ * Record the reviewer's verdict on a case. Appends a real audit event so the
+ * decision is visible in the Audit tab and survives reload — no more "(demo)"
+ * toasts that vanish on refresh. The returned case has the new audit row
+ * already so the client can `setCase(persisted)` and re-render in place.
+ */
+export const recordReviewerDecision = createServerFn({ method: "POST" })
+  .validator(
+    (d: {
+      caseId: string;
+      decision: "approved" | "escalated" | "rejected" | "info_requested";
+      note?: string;
+    }) => d,
+  )
+  .handler(async ({ data }): Promise<StepperCase> => {
+    const c = await loadCase(data.caseId);
+    const label =
+      data.decision === "approved"
+        ? "Case approved by compliance officer"
+        : data.decision === "escalated"
+          ? "Case escalated to senior compliance"
+          : data.decision === "rejected"
+            ? "Case rejected by compliance officer"
+            : "Information request initiated";
+    const detail = data.note?.trim()
+      ? data.note.trim()
+      : data.decision === "approved"
+        ? "Acceptance email will be queued for the investor."
+        : data.decision === "escalated"
+          ? "MLRO has been notified; case state is now locked."
+          : data.decision === "rejected"
+            ? "Rejection notice and reason are stored on file."
+            : "Drafted on the Requests tab.";
+    return await persistCase(appendAudit(c, label, detail));
+  });
+
+/**
+ * Record a per-flag action (Mark exception / Resolve). The compliance state
+ * row itself isn't mutated — flag status is a function of derived rules. But
+ * the action is captured in the audit trail so the reviewer's reasoning
+ * survives reload.
+ */
+export const recordFlagAction = createServerFn({ method: "POST" })
+  .validator(
+    (d: {
+      caseId: string;
+      flagRule: string;
+      flagDescription: string;
+      action: "exception" | "resolved";
+      note?: string;
+    }) => d,
+  )
+  .handler(async ({ data }): Promise<StepperCase> => {
+    const c = await loadCase(data.caseId);
+    const verb =
+      data.action === "exception" ? "Flag exception marked" : "Flag resolved";
+    const detail = `${data.flagRule} · ${data.flagDescription}${data.note?.trim() ? ` — ${data.note.trim()}` : ""}`;
+    return await persistCase(appendAudit(c, verb, detail));
   });

@@ -76,64 +76,64 @@ export function CaseHero({
           backgroundSize: "16px 16px",
         }}
       />
-      <div className="relative grid gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
-        {/* Left: identity + facts */}
+      <div className="relative grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)] lg:items-center">
+        {/* Left: identity + inline facts */}
         <div className="min-w-0">
-          <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[color:var(--ring)]/80">
-            Case under review
+          <div className="flex items-baseline gap-2">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[color:var(--ring)]/80">
+              Case under review
+            </div>
+            {caseData.legacyLegalForm && (
+              <span
+                title={`Persisted legal form "${caseData.legacyLegalForm}" was remapped to "${caseData.profile?.legalForm}" on read.`}
+                className="inline-flex max-w-[180px] items-center gap-1 rounded-full border border-[color:var(--ring)]/25 bg-[color:var(--ring)]/[0.08] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.06em] text-[color:var(--ring)]"
+                data-testid="legacy-form-chip"
+              >
+                <History className="size-2.5 shrink-0" />
+                <span className="truncate">Legacy: {truncate(caseData.legacyLegalForm, 24)}</span>
+              </span>
+            )}
           </div>
           <h1
-            className="mt-1 truncate text-[28px] font-semibold tracking-tight"
+            className="mt-0.5 truncate text-[22px] font-semibold tracking-tight"
             data-testid="hero-investor-name"
           >
             {caseData.profile?.investorName || `Case ${caseData.caseId}`}
           </h1>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-primary-foreground/75">
-            <span className="inline-flex items-center gap-1.5">
-              <Building2 className="size-3.5" />
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-primary-foreground/75">
+            <span className="inline-flex items-center gap-1">
+              <Building2 className="size-3" />
               {caseData.profile?.legalForm ?? "—"}
             </span>
             <span className="opacity-40">·</span>
-            <span className="inline-flex items-center gap-1.5">
-              <UserIcon className="size-3.5" />
+            <span className="inline-flex items-center gap-1">
+              <UserIcon className="size-3" />
               {caseData.profile?.jurisdiction || "Jurisdiction —"}
             </span>
             <span className="opacity-40">·</span>
-            <span className="inline-flex items-center gap-1.5 font-medium tabular-nums">
-              <FileText className="size-3.5" />
-              {caseData.caseId}
-            </span>
-            {caseData.legacyLegalForm && (
-              <span
-                title={`Persisted legal form "${caseData.legacyLegalForm}" was remapped to "${caseData.profile?.legalForm}" on read.`}
-                className="inline-flex max-w-[260px] items-center gap-1.5 rounded-full border border-[color:var(--ring)]/25 bg-[color:var(--ring)]/[0.08] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[color:var(--ring)]"
-                data-testid="legacy-form-chip"
-              >
-                <History className="size-3 shrink-0" />
-                <span className="truncate">
-                  Legacy: {truncate(caseData.legacyLegalForm, 36)}
-                </span>
-              </span>
-            )}
+            <span className="font-medium tabular-nums">{caseData.caseId}</span>
           </div>
 
-          <dl className="mt-5 grid gap-3 sm:grid-cols-3">
-            <HeroFact
+          {/* Compact metric chip row */}
+          <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-[11px]">
+            <HeroChip
               icon={<Calendar className="size-3" />}
               label="Submitted"
-              value={submitted ? submitted.toLocaleString() : "Not yet submitted"}
+              value={submitted ? submitted.toLocaleString() : "Not submitted"}
               hint={submitted ? formatRelative(submitted.toISOString()) : undefined}
             />
-            <HeroFact
+            <span className="self-center text-primary-foreground/20">|</span>
+            <HeroChip
               icon={<Clock className="size-3" />}
-              label="SLA due"
+              label="SLA"
               value={sla.dueAt ? sla.dueAt.toLocaleDateString() : "—"}
               hint={sla.dueAt ? sla.label : undefined}
               tone={slaToneMap[sla.tone]}
             />
-            <HeroFact
+            <span className="self-center text-primary-foreground/20">|</span>
+            <HeroChip
               icon={<ShieldCheck className="size-3" />}
-              label="Open issues"
+              label="Open"
               value={`${openFlagCount} ${openFlagCount === 1 ? "flag" : "flags"}`}
               hint={`Screening · ${screeningStatus}`}
               tone={openFlagCount > 0 ? "warn" : "success"}
@@ -141,19 +141,19 @@ export function CaseHero({
           </dl>
         </div>
 
-        {/* Right: AI recommendation card */}
-        <div className="rounded-xl border border-[color:var(--ring)]/15 bg-white/[0.06] p-4 backdrop-blur">
+        {/* Right: compact AI recommendation card */}
+        <div className="rounded-xl border border-[color:var(--ring)]/15 bg-white/[0.06] px-4 py-3 backdrop-blur">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[color:var(--ring)]/80">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--ring)]/80">
               AI recommendation
             </span>
             <StatusChip size="xs" tone={decisionTone}>
               {DECISION_LABEL[state.suggestedOutcome]}
             </StatusChip>
           </div>
-          <div className="mt-3 grid grid-cols-3 gap-3 text-primary-foreground">
-            <ScoreTile label="Risk score" value={`${state.riskScore}`} hint={`/100 · ${state.riskBand}`} tone={bandTone} />
-            <ScoreTile label="Confidence" value={`${deriveConfidence(state)}%`} hint="advisory" />
+          <div className="mt-2 grid grid-cols-3 gap-3">
+            <ScoreTile label="Risk" value={`${state.riskScore}`} hint={`/100 · ${state.riskBand}`} tone={bandTone} />
+            <ScoreTile label="Conf." value={`${deriveConfidence(state)}%`} hint="advisory" />
             <ScoreTile
               label="Open"
               value={`${openFlagCount}`}
@@ -161,16 +161,13 @@ export function CaseHero({
               tone={openFlagCount > 0 ? "warn" : "success"}
             />
           </div>
-          <p className="mt-3 text-[11px] leading-relaxed text-primary-foreground/70">
-            Final determination must be made by an authorised compliance officer.
-          </p>
         </div>
       </div>
     </section>
   );
 }
 
-function HeroFact({
+function HeroChip({
   icon,
   label,
   value,
@@ -186,24 +183,22 @@ function HeroFact({
   const hintColor: Record<StatusTone, string> = {
     success: "text-[color:var(--success)]",
     warn: "text-[color:var(--warn)]",
-    danger: "text-destructive",
+    danger: "text-[#fda4af]",
     attention: "text-[color:var(--attention)]",
     info: "text-[color:var(--ring)]/80",
     neutral: "text-primary-foreground/55",
   };
   return (
-    <div className="rounded-lg border border-[color:var(--ring)]/15 bg-white/[0.05] px-3 py-2.5 backdrop-blur">
-      <dt className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary-foreground/65">
+    <div className="inline-flex items-baseline gap-2">
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary-foreground/65">
         <span className="text-[color:var(--ring)]">{icon}</span>
         {label}
-      </dt>
-      <dd className="mt-0.5 text-[13px] font-medium leading-tight text-primary-foreground">
-        {value}
-      </dd>
+      </span>
+      <span className="text-[12px] font-medium text-primary-foreground">{value}</span>
       {hint && (
-        <div className={`mt-0.5 text-[10.5px] uppercase tracking-[0.06em] ${hintColor[tone]}`}>
+        <span className={`text-[10px] uppercase tracking-[0.06em] ${hintColor[tone]}`}>
           {hint}
-        </div>
+        </span>
       )}
     </div>
   );

@@ -16,6 +16,12 @@ export type AssistantTab = "overview" | "documents" | "flags" | "names" | "rfi" 
 
 export interface AssistantReason {
   label: string;
+  /**
+   * Drives which decision-basis bucket this reason lands in:
+   *   - `ok`   → "Positive signals"
+   *   - `warn` → "Open issues"
+   *   - `info` → "Missing / required"
+   */
   tone?: "ok" | "warn" | "info";
 }
 
@@ -156,25 +162,14 @@ export function ComplianceAssistantPanel({
           </div>
         </div>
 
-        {/* Why this recommendation */}
-        <Section title="Why this recommendation" icon={<CheckCircle2 className="size-3.5" />}>
+        {/* Decision basis — grouped into Positive / Open / Missing */}
+        <Section title="Decision basis" icon={<CheckCircle2 className="size-3.5" />}>
           {reasons.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               Reasoning will appear here as the case data is processed.
             </p>
           ) : (
-            <ul className="space-y-2">
-              {reasons.slice(0, 8).map((r, i) => (
-                <li
-                  key={`${r.label}-${i}`}
-                  className="step-item-in flex items-start gap-2"
-                  style={{ animationDelay: `${i * 0.04}s` }}
-                >
-                  <ReasonMark tone={r.tone ?? "ok"} />
-                  <span className="text-[12.5px] leading-snug text-foreground/90">{r.label}</span>
-                </li>
-              ))}
-            </ul>
+            <GroupedReasons reasons={reasons} />
           )}
         </Section>
 
@@ -322,6 +317,79 @@ function Section({
         {title}
       </div>
       {children}
+    </div>
+  );
+}
+
+/**
+ * Bucket reasons into three named sections so the reviewer can scan
+ * positives, open issues, and missing/required items in one glance instead
+ * of reading a single mixed list.
+ */
+function GroupedReasons({ reasons }: { reasons: AssistantReason[] }) {
+  const positive = reasons.filter((r) => (r.tone ?? "ok") === "ok");
+  const open = reasons.filter((r) => r.tone === "warn");
+  const missing = reasons.filter((r) => r.tone === "info");
+
+  return (
+    <div className="space-y-3">
+      {positive.length > 0 && (
+        <ReasonGroup
+          label="Positive signals"
+          tone="ok"
+          countTone="text-[color:var(--success)]"
+          items={positive}
+        />
+      )}
+      {open.length > 0 && (
+        <ReasonGroup
+          label="Open issues"
+          tone="warn"
+          countTone="text-[color:var(--warn)]"
+          items={open}
+        />
+      )}
+      {missing.length > 0 && (
+        <ReasonGroup
+          label="Missing / required"
+          tone="info"
+          countTone="text-primary"
+          items={missing}
+        />
+      )}
+    </div>
+  );
+}
+
+function ReasonGroup({
+  label,
+  tone,
+  countTone,
+  items,
+}: {
+  label: string;
+  tone: "ok" | "warn" | "info";
+  countTone: string;
+  items: AssistantReason[];
+}) {
+  return (
+    <div>
+      <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+        <span>{label}</span>
+        <span className={cn("tabular-nums", countTone)}>{items.length}</span>
+      </div>
+      <ul className="space-y-1.5">
+        {items.slice(0, 8).map((r, i) => (
+          <li
+            key={`${r.label}-${i}`}
+            className="step-item-in flex items-start gap-2"
+            style={{ animationDelay: `${i * 0.03}s` }}
+          >
+            <ReasonMark tone={tone} />
+            <span className="text-[12.5px] leading-snug text-foreground/90">{r.label}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

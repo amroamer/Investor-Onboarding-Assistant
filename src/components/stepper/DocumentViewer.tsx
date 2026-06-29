@@ -216,7 +216,7 @@ function DocumentViewerDialog({ state, onOpenChange }: DialogProps) {
               onClick={onDownload}
               disabled={!pdfUrl || pdfLoading}
               data-testid="document-viewer-download"
-              className="shrink-0"
+              className="mr-9 shrink-0"
             >
               <Download className="size-4" /> Download
             </Button>

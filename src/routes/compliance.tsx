@@ -1,18 +1,20 @@
 /**
- * Compliance workspace — review queue index.
+ * Compliance workspace — single route, three states driven by query params:
+ *   - default:           queue of every submitted stepper case
+ *   - ?case=STP-...      cockpit drill-in for one case
+ *   - ?legacy=key        legacy chat-flow demo case (back-compat)
  *
- * Default view is a queue of every submitted stepper case. Click a card →
- * `/compliance/case/$caseId` for the cockpit drill-in (separate route file).
- *
- * The legacy chat-flow demo cases (HRZN, ATLS) live behind `?legacy=key` so
- * the existing playwright specs (expired-passport.spec.ts, rfi-loop.spec.ts)
- * can still reach them. The queue surfaces a small "Open legacy demo" link
- * for manual access during the demo.
+ * Routing via query params keeps the URL hierarchy flat and sidesteps
+ * TanStack Router's parent/child Outlet plumbing.
  */
 import { createFileRoute, Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { useState, Fragment, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCaseStore, type CaseKey } from "@/lib/onboarding/store";
+import { useStepperStore, useStepperCase } from "@/lib/stepper/store";
 import { investorDisplayName } from "@/lib/onboarding/engine";
+import { StepperComplianceView } from "@/components/compliance/StepperComplianceView";
+import { DocumentViewerProvider } from "@/components/stepper/DocumentViewer";
 import { CaseQueueView } from "@/components/compliance/queue/CaseQueueView";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,24 +32,24 @@ import {
   History,
 } from "lucide-react";
 import { MgxLogo } from "@/components/Brand";
-import { useState, Fragment } from "react";
 import { cn } from "@/lib/utils";
 import { addRfiDraft, sendRfis, markRfiResolved } from "@/server/rfi";
 import { runScreening, syncScreeningList } from "@/server/screening";
 import type { OnboardingCase, ScreeningMatch, NameToScreen } from "@/lib/onboarding/types";
 
 interface ComplianceSearch {
-  /** When set, render the legacy chat-flow view for the named case key. */
+  case?: string;
   legacy?: CaseKey;
 }
 
 export const Route = createFileRoute("/compliance")({
   validateSearch: (s: Record<string, unknown>): ComplianceSearch => {
-    const legacy = s.legacy;
-    if (legacy === "new-corporate" || legacy === "returning-lp") {
-      return { legacy };
+    const out: ComplianceSearch = {};
+    if (typeof s.case === "string" && s.case.length > 0) out.case = s.case;
+    if (s.legacy === "new-corporate" || s.legacy === "returning-lp") {
+      out.legacy = s.legacy;
     }
-    return {};
+    return out;
   },
   head: () => ({
     meta: [
@@ -67,7 +69,129 @@ function ComplianceWorkspace() {
   const { cases: legacyCases } = useCaseStore();
   const [includeInProgress, setIncludeInProgress] = useState(false);
 
-  const isLegacy = !!search.legacy;
+  // CASE drill-in
+  if (search.case) {
+    return <CockpitView caseId={search.case} />;
+  }
+
+  // LEGACY chat-flow view
+  if (search.legacy) {
+    return (
+      <LegacyShell>
+        <LegacyComplianceView caseData={legacyCases[search.legacy]} />
+        <div className="mt-10 text-center text-[11px] text-muted-foreground">
+          Looking for live stepper cases?{" "}
+          <Link to="/compliance" className="font-semibold text-accent hover:underline">
+            Return to the queue →
+          </Link>
+        </div>
+      </LegacyShell>
+    );
+  }
+
+  // QUEUE (default)
+  return (
+    <QueueShell>
+      <CaseQueueView
+        includeInProgress={includeInProgress}
+        setIncludeInProgress={setIncludeInProgress}
+      />
+      <LegacyFooterLink />
+    </QueueShell>
+  );
+}
+
+/* ─── Shells ───────────────────────────────────────────────────────────── */
+
+function QueueShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="flex h-14 items-center justify-between border-b bg-primary px-6 text-primary-foreground">
+        <div className="flex items-center gap-3">
+          <Link
+            to="/"
+            aria-label="Go to MGX home"
+            className="rounded outline-none transition-opacity hover:opacity-70 focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <MgxLogo className="h-5 w-auto" />
+          </Link>
+          <div className="h-5 w-px bg-primary-foreground/20" />
+          <div>
+            <div className="text-sm font-semibold tracking-tight">Compliance workspace</div>
+            <div className="text-[11px] text-primary-foreground/70">
+              Demo · internal view · not accessible from investor portal
+            </div>
+          </div>
+        </div>
+        <Button
+          asChild
+          variant="ghost"
+          size="sm"
+          className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
+        >
+          <Link to="/">
+            <ArrowLeft className="size-3.5" /> Home
+          </Link>
+        </Button>
+      </header>
+      <div className="mx-auto w-full max-w-[1560px] px-4 sm:px-6 lg:px-8 py-6 pb-28">{children}</div>
+    </div>
+  );
+}
+
+function LegacyShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="flex h-14 items-center justify-between border-b bg-primary px-6 text-primary-foreground">
+        <div className="flex items-center gap-3">
+          <Link
+            to="/"
+            aria-label="Go to MGX home"
+            className="rounded outline-none transition-opacity hover:opacity-70 focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <MgxLogo className="h-5 w-auto" />
+          </Link>
+          <div className="h-5 w-px bg-primary-foreground/20" />
+          <div>
+            <div className="text-sm font-semibold tracking-tight">Compliance workspace</div>
+            <div className="text-[11px] text-primary-foreground/70">
+              Legacy demo · chat-flow case
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <LegacySelect />
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
+          >
+            <Link to="/compliance">
+              <ArrowLeft className="size-3.5" /> Queue
+            </Link>
+          </Button>
+        </div>
+      </header>
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 py-6 pb-24">{children}</div>
+    </div>
+  );
+}
+
+/* ─── Cockpit drill-in (?case=STP-...) ─────────────────────────────────── */
+
+function CockpitView({ caseId }: { caseId: string }) {
+  const navigate = useNavigate();
+  const { cases } = useStepperStore();
+  const { caseData } = useStepperCase(caseId);
+  const otherCases = cases.filter((c) => c.caseId !== caseId);
+
+  // If the user opens a deleted case, bounce back to the queue.
+  useEffect(() => {
+    if (cases.length > 0 && !cases.some((c) => c.caseId === caseId)) {
+      void navigate({ to: "/compliance" });
+    }
+  }, [cases, caseId, navigate]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -84,81 +208,66 @@ function ComplianceWorkspace() {
           <div>
             <div className="text-sm font-semibold tracking-tight">Compliance workspace</div>
             <div className="text-[11px] text-primary-foreground/70">
-              {isLegacy
-                ? "Legacy demo · chat-flow case"
-                : "Demo · internal view · not accessible from investor portal"}
+              {caseData?.profile?.investorName ?? caseId}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {isLegacy && (
-            <>
-              {/* Preserve the original picker so the existing playwright specs
-                  (expired-passport, rfi-loop) keep working. The select is only
-                  rendered in the legacy view branch. */}
-              <LegacySelect />
-              <Button
-                asChild
-                variant="ghost"
-                size="sm"
-                className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
-              >
-                <Link to="/compliance">
-                  <ArrowLeft className="size-3.5" /> Queue
-                </Link>
-              </Button>
-            </>
-          )}
-          {!isLegacy && (
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
+          {otherCases.length > 0 && (
+            <select
+              value={caseId}
+              onChange={(e) =>
+                navigate({
+                  to: "/compliance",
+                  search: { case: e.target.value } as ComplianceSearch,
+                })
+              }
+              className="rounded-md border border-primary-foreground/20 bg-primary px-2 py-1 text-xs text-primary-foreground"
+              data-testid="case-quick-switch"
+              aria-label="Jump to another case"
             >
-              <Link to="/">
-                <ArrowLeft className="size-3.5" /> Home
-              </Link>
-            </Button>
+              <option value={caseId}>
+                {caseData?.profile?.investorName ?? caseId} (this case)
+              </option>
+              <optgroup label="Other cases">
+                {otherCases.map((c) => (
+                  <option key={c.caseId} value={c.caseId}>
+                    {c.profile?.investorName || `Case ${c.caseId}`}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
           )}
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
+          >
+            <Link to="/compliance" data-testid="case-breadcrumb-queue">
+              <ArrowLeft className="size-3.5" /> All cases
+            </Link>
+          </Button>
         </div>
       </header>
 
-      <div
-        className={cn(
-          "mx-auto px-4 sm:px-6 py-6 pb-24",
-          isLegacy ? "max-w-6xl" : "max-w-[1320px]",
-        )}
-      >
-        {isLegacy ? (
-          <>
-            <LegacyComplianceView caseData={legacyCases[search.legacy!]} />
-            <div className="mt-10 text-center text-[11px] text-muted-foreground">
-              Looking for live stepper cases?{" "}
-              <Link to="/compliance" className="font-semibold text-accent hover:underline">
-                Return to the queue →
-              </Link>
-            </div>
-          </>
+      <div className="mx-auto w-full max-w-[1560px] px-4 sm:px-6 lg:px-8 py-6 pb-28">
+        {!caseData ? (
+          <div className="rounded-lg border bg-surface p-6 text-sm text-muted-foreground">
+            Loading case {caseId}…
+          </div>
         ) : (
-          <>
-            <CaseQueueView
-              includeInProgress={includeInProgress}
-              setIncludeInProgress={setIncludeInProgress}
-            />
-            <LegacyFooterLink />
-          </>
+          <DocumentViewerProvider>
+            <StepperComplianceView caseData={caseData} />
+          </DocumentViewerProvider>
         )}
       </div>
     </div>
   );
 }
 
-/**
- * Small footer card that lets reviewers jump into the legacy chat-flow demo
- * cases. Kept low-key so it doesn't compete with the live queue, but visible
- * enough to be discoverable.
- */
+/* ─── Legacy footer link (queue page) ──────────────────────────────────── */
+
 function LegacyFooterLink() {
   const { cases: legacyCases } = useCaseStore();
   return (
@@ -198,11 +307,6 @@ function LegacyFooterLink() {
   );
 }
 
-/**
- * Header-rendered select used in the legacy view. Switching the option
- * navigates to the corresponding legacy case via the query string so the URL
- * stays bookmarkable.
- */
 function LegacySelect() {
   const navigate = useNavigate();
   const { cases: legacyCases } = useCaseStore();
@@ -227,6 +331,8 @@ function LegacySelect() {
   );
 }
 
+/* ─── Legacy chat-flow view ────────────────────────────────────────────── */
+
 function LegacyComplianceView({ caseData }: { caseData: OnboardingCase }) {
   const [tab, setTab] = useState<"overview" | "flags" | "names" | "rfi" | "audit">("overview");
   const co = caseData.complianceOnly;
@@ -245,9 +351,7 @@ function LegacyComplianceView({ caseData }: { caseData: OnboardingCase }) {
           <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Case
           </div>
-          <h1 className="text-2xl font-medium text-foreground">
-            {investorDisplayName(caseData)}
-          </h1>
+          <h1 className="text-2xl font-medium text-foreground">{investorDisplayName(caseData)}</h1>
           <div className="mt-0.5 text-sm text-muted-foreground">
             {caseData.legalForm} · {caseData.jurisdiction} · {caseData.caseId}
           </div>
@@ -264,9 +368,7 @@ function LegacyComplianceView({ caseData }: { caseData: OnboardingCase }) {
                 : co.suggestedOutcome}
             </span>
             <div className="text-right">
-              <div className="text-2xl font-semibold tabular-nums text-primary">
-                {co.riskScore}
-              </div>
+              <div className="text-2xl font-semibold tabular-nums text-primary">{co.riskScore}</div>
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
                 Internal risk score · {co.riskBand}
               </div>
@@ -305,11 +407,11 @@ function LegacyComplianceView({ caseData }: { caseData: OnboardingCase }) {
       </div>
 
       <div className="mt-6">
-        {tab === "overview" && <OverviewTab caseData={caseData} />}
-        {tab === "flags" && <FlagsTab caseData={caseData} />}
-        {tab === "names" && <NamesTab caseData={caseData} />}
-        {tab === "rfi" && <RfiTab caseData={caseData} />}
-        {tab === "audit" && <AuditTab caseData={caseData} />}
+        {tab === "overview" && <LegacyOverviewTab caseData={caseData} />}
+        {tab === "flags" && <LegacyFlagsTab caseData={caseData} />}
+        {tab === "names" && <LegacyNamesTab caseData={caseData} />}
+        {tab === "rfi" && <LegacyRfiTab caseData={caseData} />}
+        {tab === "audit" && <LegacyAuditTab caseData={caseData} />}
       </div>
     </>
   );
@@ -334,7 +436,7 @@ function Section({
   );
 }
 
-function OverviewTab({
+function LegacyOverviewTab({
   caseData,
 }: {
   caseData: ReturnType<typeof useCaseStore>["cases"][CaseKey];
@@ -403,8 +505,7 @@ function OverviewTab({
           ))}
           {caseData.relatedParties.length === 0 && (
             <li className="py-3 text-sm text-muted-foreground">
-              No related parties identified yet. Ownership/director registers populate this section
-              as they are uploaded.
+              No related parties identified yet.
             </li>
           )}
         </ul>
@@ -421,9 +522,7 @@ function OverviewTab({
             </li>
           ))}
           {caseData.checklist.length === 0 && (
-            <li className="py-3 text-sm text-muted-foreground">
-              No checklist items yet. Items are added as documents are uploaded and classified.
-            </li>
+            <li className="py-3 text-sm text-muted-foreground">No checklist items yet.</li>
           )}
         </ul>
       </Section>
@@ -431,7 +530,11 @@ function OverviewTab({
   );
 }
 
-function FlagsTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cases"][CaseKey] }) {
+function LegacyFlagsTab({
+  caseData,
+}: {
+  caseData: ReturnType<typeof useCaseStore>["cases"][CaseKey];
+}) {
   const flags = caseData.complianceOnly.redFlags;
   if (flags.length === 0)
     return (
@@ -487,7 +590,11 @@ function FlagsTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cas
   );
 }
 
-function NamesTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cases"][CaseKey] }) {
+function LegacyNamesTab({
+  caseData,
+}: {
+  caseData: ReturnType<typeof useCaseStore>["cases"][CaseKey];
+}) {
   const queryClient = useQueryClient();
   const names = caseData.complianceOnly.namesToScreen;
   const [busy, setBusy] = useState(false);
@@ -497,7 +604,9 @@ function NamesTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cas
   const splice = (updated: OnboardingCase) => {
     queryClient.setQueryData<Record<CaseKey, OnboardingCase>>(["cases"], (prev) => {
       if (!prev) return prev;
-      const k = (Object.keys(prev) as CaseKey[]).find((kk) => prev[kk].caseId === caseData.caseId);
+      const k = (Object.keys(prev) as CaseKey[]).find(
+        (kk) => prev[kk].caseId === caseData.caseId,
+      );
       if (!k) return prev;
       return { ...prev, [k]: updated };
     });
@@ -522,7 +631,9 @@ function NamesTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cas
     setBusy(true);
     setError(null);
     try {
-      const updated = (await runScreening({ data: { caseId: caseData.caseId } })) as OnboardingCase;
+      const updated = (await runScreening({
+        data: { caseId: caseData.caseId },
+      })) as OnboardingCase;
       splice(updated);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Screening failed.");
@@ -627,7 +738,7 @@ function NamesTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cas
                       <td className="px-4 py-2.5">{n.role}</td>
                       <td className="px-4 py-2.5">{n.country ?? "—"}</td>
                       <td className="px-4 py-2.5 text-xs">
-                        <ScreeningBadge entry={n} />
+                        <LegacyScreeningBadge entry={n} />
                       </td>
                       <td className="px-4 py-2.5">
                         {n.screeningStatus === "Screening completed" ? (
@@ -649,7 +760,7 @@ function NamesTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cas
                     {isExpanded && (
                       <tr className="border-b bg-surface-muted/40">
                         <td colSpan={6} className="px-4 py-3">
-                          <ScreeningDetails entry={n} />
+                          <LegacyScreeningDetails entry={n} />
                         </td>
                       </tr>
                     )}
@@ -671,14 +782,13 @@ function NamesTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cas
         >
           OpenSanctions
         </a>
-        , a real-world sanctions + PEP dataset. Results are advisory; final determinations must be
-        made by an authorised compliance officer with appropriate corroboration.
+        , a real-world sanctions + PEP dataset.
       </div>
     </div>
   );
 }
 
-function ScreeningBadge({ entry }: { entry: NameToScreen }) {
+function LegacyScreeningBadge({ entry }: { entry: NameToScreen }) {
   const s = entry.screeningStatus;
   const className = cn(
     "rounded px-2 py-0.5 text-xs",
@@ -693,7 +803,7 @@ function ScreeningBadge({ entry }: { entry: NameToScreen }) {
   return <span className={className}>{s}</span>;
 }
 
-function ScreeningDetails({ entry }: { entry: NameToScreen }) {
+function LegacyScreeningDetails({ entry }: { entry: NameToScreen }) {
   if (entry.screeningStatus === "Screening failed") {
     return (
       <div className="text-xs text-destructive">
@@ -704,68 +814,42 @@ function ScreeningDetails({ entry }: { entry: NameToScreen }) {
   if (!entry.matches || entry.matches.length === 0) {
     return (
       <div className="text-xs text-muted-foreground">
-        No matches on {entry.provider ?? "the screening provider"}
-        {entry.screenedAt ? ` (screened ${new Date(entry.screenedAt).toLocaleString()})` : ""}.
+        No matches on {entry.provider ?? "the screening provider"}.
       </div>
     );
   }
   return (
     <div className="space-y-2">
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
-        {entry.matches.length} match{entry.matches.length === 1 ? "" : "es"} from{" "}
-        {entry.provider ?? "screening provider"}
-        {entry.screenedAt ? ` at ${new Date(entry.screenedAt).toLocaleString()}` : ""}
+        {entry.matches.length} match{entry.matches.length === 1 ? "" : "es"}
       </div>
       <ul className="space-y-2">
         {entry.matches.map((m) => (
-          <MatchRow key={m.id} match={m} />
+          <LegacyMatchRow key={m.id} match={m} />
         ))}
       </ul>
     </div>
   );
 }
 
-function MatchRow({ match }: { match: ScreeningMatch }) {
-  const topicLabel = (t: string) => {
-    if (t === "sanction") return "Sanctions";
-    if (t === "role.pep") return "PEP";
-    if (t === "crime") return "Crime";
-    if (t === "wanted") return "Wanted";
-    return t;
-  };
+function LegacyMatchRow({ match }: { match: ScreeningMatch }) {
   return (
     <li className="rounded border bg-background px-3 py-2" data-testid="screening-match">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="font-medium">
-          {match.sourceUrl ? (
-            <a className="underline" href={match.sourceUrl} target="_blank" rel="noreferrer">
-              {match.caption}
-            </a>
-          ) : (
-            match.caption
-          )}
-        </div>
+        <div className="font-medium">{match.caption}</div>
         <div className="text-xs text-muted-foreground tabular-nums">
           score {Math.round((match.score ?? 0) * 100)}%
         </div>
-      </div>
-      <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
-        {match.topics.map((t) => (
-          <span key={t} className="rounded bg-secondary px-1.5 py-0.5 text-secondary-foreground">
-            {topicLabel(t)}
-          </span>
-        ))}
-      </div>
-      <div className="mt-1 text-xs text-muted-foreground">
-        {match.datasets.length > 0 && <>Datasets: {match.datasets.join(", ")} · </>}
-        {match.countries.length > 0 && <>Countries: {match.countries.join(", ")}</>}
-        {match.birthDate && <> · DOB: {match.birthDate}</>}
       </div>
     </li>
   );
 }
 
-function RfiTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cases"][CaseKey] }) {
+function LegacyRfiTab({
+  caseData,
+}: {
+  caseData: ReturnType<typeof useCaseStore>["cases"][CaseKey];
+}) {
   const queryClient = useQueryClient();
   const items = caseData.complianceOnly.furtherInfoRequests;
   const drafts = items.filter((r) => r.status === "draft");
@@ -783,7 +867,9 @@ function RfiTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cases
   const splice = (updated: OnboardingCase) => {
     queryClient.setQueryData<Record<CaseKey, OnboardingCase>>(["cases"], (prev) => {
       if (!prev) return prev;
-      const k = (Object.keys(prev) as CaseKey[]).find((kk) => prev[kk].caseId === caseData.caseId);
+      const k = (Object.keys(prev) as CaseKey[]).find(
+        (kk) => prev[kk].caseId === caseData.caseId,
+      );
       if (!k) return prev;
       return { ...prev, [k]: updated };
     });
@@ -848,10 +934,9 @@ function RfiTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cases
     return (
       <div className="space-y-4">
         <div className="rounded-lg border bg-surface p-6 text-sm text-muted-foreground">
-          No further information requests have been drafted yet. Add one below to send to the
-          investor.
+          No further information requests have been drafted yet.
         </div>
-        <DraftComposer
+        <LegacyDraftComposer
           value={newDraft}
           onChange={setNewDraft}
           onAdd={onAddDraft}
@@ -898,8 +983,7 @@ function RfiTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cases
               onClick={onSendSelected}
               data-testid="rfi-send-selected"
             >
-              <Send className="size-3.5" />
-              Send to investor ({selectedDraftIds.size})
+              <Send className="size-3.5" /> Send to investor ({selectedDraftIds.size})
             </Button>
           </div>
         </Section>
@@ -955,8 +1039,7 @@ function RfiTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cases
                     onClick={() => onResolve(r.id)}
                     data-testid="rfi-resolve"
                   >
-                    <CheckCircle2 className="size-3.5" />
-                    Mark resolved
+                    <CheckCircle2 className="size-3.5" /> Mark resolved
                   </Button>
                 </div>
               </li>
@@ -974,32 +1057,24 @@ function RfiTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cases
             {resolved.map((r) => (
               <li key={r.id} className="rounded-md border bg-background px-3 py-2.5 opacity-70">
                 <div className="text-sm">{r.text}</div>
-                <div className="mt-1 text-[11px] uppercase tracking-wider text-muted-foreground">
-                  Resolved {r.resolvedAt && new Date(r.resolvedAt).toLocaleString()}
-                </div>
               </li>
             ))}
           </ul>
         </Section>
       )}
 
-      <DraftComposer
+      <LegacyDraftComposer
         value={newDraft}
         onChange={setNewDraft}
         onAdd={onAddDraft}
         busy={busy}
         error={drafts.length > 0 ? null : error}
       />
-
-      <div className="rounded-lg border bg-secondary p-4 text-xs leading-relaxed text-secondary-foreground">
-        Investor sees only the request text. No internal severity, rule references or risk
-        consequences are included in the investor-facing communication.
-      </div>
     </div>
   );
 }
 
-function DraftComposer({
+function LegacyDraftComposer({
   value,
   onChange,
   onAdd,
@@ -1034,15 +1109,18 @@ function DraftComposer({
           onClick={onAdd}
           data-testid="rfi-add-draft"
         >
-          <Plus className="size-3.5" />
-          Add draft
+          <Plus className="size-3.5" /> Add draft
         </Button>
       </div>
     </div>
   );
 }
 
-function AuditTab({ caseData }: { caseData: ReturnType<typeof useCaseStore>["cases"][CaseKey] }) {
+function LegacyAuditTab({
+  caseData,
+}: {
+  caseData: ReturnType<typeof useCaseStore>["cases"][CaseKey];
+}) {
   if (caseData.audit.length === 0) {
     return (
       <div className="rounded-lg border bg-surface p-6 text-sm text-muted-foreground">

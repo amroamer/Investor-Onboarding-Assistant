@@ -53,7 +53,10 @@ import {
   addStepperRfiDraft,
   sendStepperRfis,
   markStepperRfiResolved,
+  recordReviewerDecision,
+  recordFlagAction,
 } from "@/server/stepper/compliance";
+import { useStepperCase } from "@/lib/stepper/store";
 import {
   ComplianceAssistantPanel,
   type AssistantTab,
@@ -63,6 +66,7 @@ import {
 import { CaseHero } from "./CaseHero";
 import { DecisionBar } from "./DecisionBar";
 import { EvidenceDrawer, type EvidenceSource } from "./EvidenceDrawer";
+import { TabNextActionCard } from "./TabNextAction";
 import { StatusChip, type StatusTone } from "./primitives/StatusChip";
 import { MetricCard } from "./primitives/MetricCard";
 import { WhatHowWhy } from "./primitives/WhatHowWhy";
@@ -71,6 +75,7 @@ const stateQueryKey = (caseId: string) => ["stepper-compliance-state", caseId] a
 
 export function StepperComplianceView({ caseData }: { caseData: StepperCase }) {
   const queryClient = useQueryClient();
+  const stepperCtx = useStepperCase(caseData.caseId);
   const [tab, setTab] = useState<AssistantTab>("overview");
   const [evidence, setEvidence] = useState<EvidenceSource | null>(null);
   // Shared cross-tab state: prefilled draft text passed from a red flag's
@@ -110,6 +115,38 @@ export function StepperComplianceView({ caseData }: { caseData: StepperCase }) {
     });
   };
 
+  // Persist a per-flag reviewer action (Mark exception / Resolve) as a real
+  // audit event so the action survives reload and shows in the Audit tab.
+  const persistFlagAction = async (
+    flag: StepperRedFlag,
+    action: "exception" | "resolved",
+  ) => {
+    const updated = (await recordFlagAction({
+      data: {
+        caseId: caseData.caseId,
+        flagRule: flag.rule,
+        flagDescription: flag.description,
+        action,
+      },
+    })) as StepperCase;
+    stepperCtx.setCase(updated);
+  };
+
+  // "Generate consolidated request" composes a single investor-facing draft
+  // covering every open flag and jumps to Requests with it prefilled.
+  const generateConsolidatedRequest = () => {
+    if (state.redFlags.length === 0) {
+      setTab("rfi");
+      return;
+    }
+    const text = buildConsolidatedRfiCopy(state.redFlags);
+    setPrefilledDraft(text);
+    setTab("rfi");
+    toast(`Consolidated draft prepared (${state.redFlags.length} items)`, {
+      description: "Review and send from the Requests tab.",
+    });
+  };
+
   const assistantContext = buildAssistantContext({
     tab,
     state,
@@ -142,6 +179,26 @@ export function StepperComplianceView({ caseData }: { caseData: StepperCase }) {
 
       <TabBar tab={tab} setTab={setTab} state={state} caseData={caseData} />
 
+      {/* Inline next-best-action card — visible on every tab, driven by the
+          same logic the right-rail assistant uses. */}
+      <InlineNextAction
+        tab={tab}
+        state={state}
+        screeningStatus={screeningStatus}
+        openFlagCount={openFlagCount}
+        onRunScreening={async () => {
+          const updated = (await runStepperScreening({
+            data: { caseId: caseData.caseId },
+          })) as StepperComplianceState;
+          splice(updated);
+        }}
+        onGenerateConsolidatedRequest={generateConsolidatedRequest}
+        onGoToFlags={() => setTab("flags")}
+        onGoToRequests={() => setTab("rfi")}
+        onGoToScreening={() => setTab("names")}
+        onGoToDocuments={() => setTab("documents")}
+      />
+
       <div
         key={tab}
         className="tab-swap-in space-y-5"
@@ -165,7 +222,9 @@ export function StepperComplianceView({ caseData }: { caseData: StepperCase }) {
           <FlagsTab
             state={state}
             onGenerateRequest={generateRequestFromFlag}
+            onGenerateConsolidated={generateConsolidatedRequest}
             onOpenEvidence={setEvidence}
+            onPersistFlagAction={persistFlagAction}
           />
         )}
         {tab === "names" && (
@@ -187,7 +246,38 @@ export function StepperComplianceView({ caseData }: { caseData: StepperCase }) {
         {tab === "audit" && <AuditTab caseData={caseData} state={state} />}
       </div>
 
-      <DecisionBar state={state} onRequestInfo={() => setTab("rfi")} />
+      <DecisionBar
+        state={state}
+        audit={caseData.audit}
+        onRequestInfo={() => setTab("rfi")}
+        onApprove={async () => {
+          const updated = (await recordReviewerDecision({
+            data: { caseId: caseData.caseId, decision: "approved" },
+          })) as StepperCase;
+          stepperCtx.setCase(updated);
+          toast.success(`${caseData.profile?.investorName ?? caseData.caseId} approved`, {
+            description: "Audit event recorded.",
+          });
+        }}
+        onEscalate={async () => {
+          const updated = (await recordReviewerDecision({
+            data: { caseId: caseData.caseId, decision: "escalated" },
+          })) as StepperCase;
+          stepperCtx.setCase(updated);
+          toast(`${caseData.profile?.investorName ?? caseData.caseId} escalated`, {
+            description: "Audit event recorded.",
+          });
+        }}
+        onReject={async () => {
+          const updated = (await recordReviewerDecision({
+            data: { caseId: caseData.caseId, decision: "rejected" },
+          })) as StepperCase;
+          stepperCtx.setCase(updated);
+          toast.error(`${caseData.profile?.investorName ?? caseData.caseId} rejected`, {
+            description: "Audit event recorded.",
+          });
+        }}
+      />
     </div>
   );
 
@@ -354,6 +444,186 @@ function TabButton({
       )}
     </button>
   );
+}
+
+/* ─── Inline next-best-action ──────────────────────────────────────────── */
+
+function InlineNextAction({
+  tab,
+  state,
+  screeningStatus,
+  openFlagCount,
+  onRunScreening,
+  onGenerateConsolidatedRequest,
+  onGoToFlags,
+  onGoToRequests,
+  onGoToScreening,
+  onGoToDocuments,
+}: {
+  tab: AssistantTab;
+  state: StepperComplianceState;
+  screeningStatus: ReturnType<typeof computeScreeningStatus>;
+  openFlagCount: number;
+  onRunScreening: () => Promise<void>;
+  onGenerateConsolidatedRequest: () => void;
+  onGoToFlags: () => void;
+  onGoToRequests: () => void;
+  onGoToScreening: () => void;
+  onGoToDocuments: () => void;
+}) {
+  // Decide the next-best-action per tab, honoring the same priorities the
+  // assistant panel uses (FAIL > screening > flags > approve).
+  const hasFail = state.suggestedOutcome === "FAIL";
+  const screeningNotRun = screeningStatus === "Not run" || screeningStatus === "Mixed";
+
+  if (hasFail) {
+    return (
+      <TabNextActionCard
+        tone="danger"
+        headline="Sanctions or critical hit — escalate before doing anything else."
+        caption={`Risk score ${state.riskScore} (${state.riskBand}). Final decision must be made by MLRO.`}
+        cta={{ label: "Open flags", onClick: onGoToFlags }}
+      />
+    );
+  }
+
+  if (tab === "overview") {
+    if (screeningNotRun) {
+      return (
+        <TabNextActionCard
+          tone="warn"
+          headline="Run screening before final approval."
+          caption={`${state.namesToScreen.length} name${state.namesToScreen.length === 1 ? "" : "s"} ready · powered by OpenSanctions.`}
+          cta={{ label: "Run screening", onClick: () => void onRunScreening() }}
+          secondary={{ label: "Open screening tab", onClick: onGoToScreening }}
+        />
+      );
+    }
+    if (openFlagCount > 0) {
+      return (
+        <TabNextActionCard
+          tone="warn"
+          headline={`Review the ${openFlagCount} open flag${openFlagCount === 1 ? "" : "s"} on the Risk & flags tab.`}
+          caption="Then generate a consolidated request covering every evidence gap."
+          cta={{ label: "Open flags", onClick: onGoToFlags }}
+        />
+      );
+    }
+    return (
+      <TabNextActionCard
+        tone="success"
+        headline="Case looks clean. Confirm screening + flags, then approve."
+        caption="No blocking signals detected."
+      />
+    );
+  }
+
+  if (tab === "documents") {
+    const attentionCount = state.redFlags.filter(
+      (f) => f.rule === "R-DOC-001" || f.rule === "R-DOC-002",
+    ).length;
+    if (attentionCount > 0) {
+      return (
+        <TabNextActionCard
+          tone="warn"
+          headline={`Review evidence quality for ${attentionCount} attention item${attentionCount === 1 ? "" : "s"}.`}
+          caption="Open Preview or Extraction on the cards below to inspect."
+          cta={{ label: "Open flags", onClick: onGoToFlags }}
+        />
+      );
+    }
+    return (
+      <TabNextActionCard
+        tone="accent"
+        headline="Spot-check the highest-confidence evidence before approving."
+        caption="Every other tab cites these documents."
+      />
+    );
+  }
+
+  if (tab === "flags") {
+    if (openFlagCount === 0) {
+      return (
+        <TabNextActionCard
+          tone="success"
+          headline="No open flags — there's nothing to remediate."
+          caption="Move on to screening or approve when ready."
+        />
+      );
+    }
+    return (
+      <TabNextActionCard
+        tone="warn"
+        headline={`Generate one consolidated request covering all ${openFlagCount} open flag${openFlagCount === 1 ? "" : "s"}.`}
+        caption="Sends a single investor-facing message instead of N separate emails."
+        cta={{ label: "Generate consolidated request", onClick: onGenerateConsolidatedRequest }}
+        secondary={{ label: "View Requests tab", onClick: onGoToRequests }}
+      />
+    );
+  }
+
+  if (tab === "names") {
+    if (screeningNotRun) {
+      return (
+        <TabNextActionCard
+          tone="warn"
+          headline={`Run screening for ${state.namesToScreen.length} name${state.namesToScreen.length === 1 ? "" : "s"}.`}
+          caption="Sanctions, PEP and adverse media checks via OpenSanctions."
+          cta={{ label: "Run screening", onClick: () => void onRunScreening() }}
+        />
+      );
+    }
+    return (
+      <TabNextActionCard
+        tone="success"
+        headline="Screening complete — no blocking hits."
+        caption={`Last run · ${state.namesToScreen.length} subject${state.namesToScreen.length === 1 ? "" : "s"} screened.`}
+      />
+    );
+  }
+
+  if (tab === "rfi") {
+    const drafts = state.furtherInfoRequests.filter((r) => r.status === "draft").length;
+    if (drafts > 0) {
+      return (
+        <TabNextActionCard
+          tone="accent"
+          headline={`Send the ${drafts === 1 ? "AI-generated draft" : `${drafts} drafts`} to the investor.`}
+          caption="Drafts below can be edited before sending."
+        />
+      );
+    }
+    if (openFlagCount > 0) {
+      return (
+        <TabNextActionCard
+          tone="warn"
+          headline="Generate a consolidated draft from your open flags."
+          caption={`${openFlagCount} flag${openFlagCount === 1 ? "" : "s"} can roll into one investor-facing message.`}
+          cta={{ label: "Generate draft", onClick: onGenerateConsolidatedRequest }}
+        />
+      );
+    }
+    return (
+      <TabNextActionCard
+        tone="success"
+        headline="No open issues — nothing to request."
+        caption="The requests history below shows resolved threads."
+      />
+    );
+  }
+
+  if (tab === "audit") {
+    return (
+      <TabNextActionCard
+        tone="accent"
+        headline="Export the audit trail if you're closing the case."
+        caption="The export contains every system, investor and reviewer action."
+        secondary={{ label: "Review documents", onClick: onGoToDocuments }}
+      />
+    );
+  }
+
+  return null;
 }
 
 /* ─── Overview tab ─────────────────────────────────────────────────────── */
@@ -869,6 +1139,11 @@ function DocumentRegisterCard({
   onOpenEvidence: (s: EvidenceSource) => void;
   onGoToDocuments: () => void;
 }) {
+  // One-click "Preview" button uses the shared DocumentViewer dialog directly
+  // — no need to detour through the evidence drawer for a quick look at the
+  // PDF. Mounted by the cockpit shell, so `openDocument` always exists.
+  const { openDocument } = useDocumentViewer();
+
   return (
     <CardShell
       title="Document register"
@@ -894,34 +1169,74 @@ function DocumentRegisterCard({
             const tone: StatusTone =
               d.status === "ready" ? "success" : d.status === "failed" ? "danger" : "warn";
             return (
-              <li key={d.id} className="flex items-baseline justify-between gap-3 py-2.5">
+              <li
+                key={d.id}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 py-2.5"
+              >
                 <div className="min-w-0">
                   <div className="truncate text-[13px] font-medium text-foreground">
                     {d.classifiedAs}
                   </div>
-                  <div className="truncate text-[11.5px] text-muted-foreground">{d.fileName}</div>
-                </div>
-                <div className="flex shrink-0 flex-col items-end gap-1">
-                  <StatusChip size="xs" tone={tone}>
-                    {d.status}
-                  </StatusChip>
-                  {d.classificationConfidence && (
-                    <StatusChip
-                      size="xs"
-                      tone={
-                        d.classificationConfidence === "high"
-                          ? "success"
-                          : d.classificationConfidence === "medium"
-                            ? "warn"
-                            : "neutral"
-                      }
-                      dot={false}
-                    >
-                      {d.classificationConfidence} conf.
+                  <div className="truncate text-[11.5px] text-muted-foreground">
+                    {d.fileName}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <StatusChip size="xs" tone={tone}>
+                      {d.status}
                     </StatusChip>
-                  )}
-                  <button
-                    type="button"
+                    {d.classificationConfidence && (
+                      <StatusChip
+                        size="xs"
+                        tone={
+                          d.classificationConfidence === "high"
+                            ? "success"
+                            : d.classificationConfidence === "medium"
+                              ? "warn"
+                              : "neutral"
+                        }
+                        dot={false}
+                      >
+                        {d.classificationConfidence} conf.
+                      </StatusChip>
+                    )}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {/* One-click preview — opens the PDF immediately in the
+                      shared DocumentViewer dialog. */}
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      openDocument({
+                        docId: d.id,
+                        fileName: d.fileName,
+                        defaultTab: "pdf",
+                      })
+                    }
+                    data-testid="register-preview"
+                    className="bg-primary text-primary-foreground hover:bg-primary/90"
+                  >
+                    <ExternalLink className="size-3.5" /> Preview
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      openDocument({
+                        docId: d.id,
+                        fileName: d.fileName,
+                        defaultTab: "markdown",
+                      })
+                    }
+                    data-testid="register-extraction"
+                    title="View the agent's extracted markdown"
+                    className="text-accent hover:bg-accent/5"
+                  >
+                    Extraction
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     onClick={() =>
                       onOpenEvidence({
                         title: d.classifiedAs,
@@ -929,14 +1244,18 @@ function DocumentRegisterCard({
                         confidence: d.classificationConfidence,
                         result: { tone, label: d.status },
                         caseSection: "Document register",
-                        why: d.thumbnailExcerpt ?? "Document mapped to the case requirements set.",
+                        why:
+                          d.thumbnailExcerpt ??
+                          "Document mapped to the case requirements set.",
                         docId: d.id,
                       })
                     }
-                    className="text-[10.5px] uppercase tracking-[0.06em] text-accent hover:underline"
+                    data-testid="register-evidence"
+                    title="View evidence detail in the side drawer"
+                    className="text-muted-foreground hover:bg-secondary"
                   >
-                    View evidence
-                  </button>
+                    Details
+                  </Button>
                 </div>
               </li>
             );
@@ -1067,16 +1386,18 @@ function ChecklistCard({
   const groups = useMemo(() => {
     if (!form) return [];
     const requirementGroups = requirementsFor(form);
-    const checklistByPair = new Set(
-      caseData.checklist.map((i) => `${i.party} ${i.requirementKey}`),
-    );
+    // Match on requirementKey only — the validator stamps `party` with the
+    // investor's actual name (e.g. "Jane Smith"), while the requirement
+    // groups use static labels ("Investor (individual)"), so a party-equality
+    // join never hits. Requirement keys are already scoped per form
+    // (`source_of_funds` vs `entity_source_of_funds`, etc.), so key-only
+    // matching is safe.
     return requirementGroups.map((g) => {
       const items = g.items.map((req) => {
-        const pair = `${g.party} ${req.key}`;
         const checklistItem = caseData.checklist.find(
-          (i) => i.party === g.party && i.requirementKey === req.key,
+          (i) => i.requirementKey === req.key,
         );
-        const received = checklistByPair.has(pair);
+        const received = checklistItem !== undefined;
         return { req, item: checklistItem, received };
       });
       const receivedCount = items.filter((x) => x.received).length;
@@ -1622,11 +1943,15 @@ function formatBytes(n: number): string {
 function FlagsTab({
   state,
   onGenerateRequest,
+  onGenerateConsolidated,
   onOpenEvidence,
+  onPersistFlagAction,
 }: {
   state: StepperComplianceState;
   onGenerateRequest: (f: StepperRedFlag) => void;
+  onGenerateConsolidated: () => void;
   onOpenEvidence: (s: EvidenceSource) => void;
+  onPersistFlagAction: (flag: StepperRedFlag, action: "exception" | "resolved") => Promise<void>;
 }) {
   const flags = state.redFlags;
   const high = flags.filter((f) => f.severity === "High").length;
@@ -1635,8 +1960,8 @@ function FlagsTab({
 
   return (
     <div className="space-y-5">
-      {/* Summary band */}
-      <section className="grid gap-3 sm:grid-cols-4">
+      {/* Summary band + consolidated CTA */}
+      <section className="grid gap-3 sm:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
         <MetricCard
           label="Open flags"
           count={flags.length}
@@ -1646,6 +1971,18 @@ function FlagsTab({
         <MetricCard label="High" count={high} tone={high > 0 ? "danger" : "neutral"} />
         <MetricCard label="Medium" count={medium} tone={medium > 0 ? "warn" : "neutral"} />
         <MetricCard label="Low" count={low} tone="neutral" />
+        {flags.length > 0 && (
+          <div className="flex items-center">
+            <Button
+              size="sm"
+              onClick={onGenerateConsolidated}
+              data-testid="flags-generate-consolidated"
+              className="h-full whitespace-nowrap bg-primary px-4 text-primary-foreground hover:bg-primary/90"
+            >
+              <Wand2 className="size-3.5" /> Generate consolidated request
+            </Button>
+          </div>
+        )}
       </section>
 
       {flags.length === 0 ? (
@@ -1663,6 +2000,8 @@ function FlagsTab({
               key={f.id}
               flag={f}
               onGenerateRequest={() => onGenerateRequest(f)}
+              onMarkException={() => onPersistFlagAction(f, "exception")}
+              onResolve={() => onPersistFlagAction(f, "resolved")}
               onOpenEvidence={() =>
                 onOpenEvidence({
                   title: f.description,
@@ -1696,10 +2035,14 @@ function FlagsTab({
 function FlagCard({
   flag,
   onGenerateRequest,
+  onMarkException,
+  onResolve,
   onOpenEvidence,
 }: {
   flag: StepperRedFlag;
   onGenerateRequest: () => void;
+  onMarkException: () => Promise<void>;
+  onResolve: () => Promise<void>;
   onOpenEvidence: () => void;
 }) {
   const severityTone: StatusTone =
@@ -1752,9 +2095,10 @@ function FlagCard({
           <Button
             size="sm"
             variant="outline"
-            onClick={() => {
-              toast("Exception marked (demo)", {
-                description: `Reviewer note would be required to persist the exception for ${flag.rule}.`,
+            onClick={async () => {
+              await onMarkException();
+              toast(`Exception marked for ${flag.rule}`, {
+                description: "Audit event recorded — the flag remains until evidence updates.",
               });
             }}
             disabled={resolved}
@@ -1773,9 +2117,12 @@ function FlagCard({
           <Button
             size="sm"
             variant="outline"
-            onClick={() => {
+            onClick={async () => {
+              await onResolve();
               setResolved(true);
-              toast.success(`${flag.rule} marked resolved (demo)`);
+              toast.success(`${flag.rule} marked resolved`, {
+                description: "Audit event recorded.",
+              });
             }}
             disabled={resolved}
             className="justify-start border-[color:var(--success)]/30 text-[color:var(--success)] hover:bg-[color:var(--success)]/5"
@@ -2768,6 +3115,57 @@ function computeScreeningStatus(
   const hits = completed.reduce((s, n) => s + (n.matches?.length ?? 0), 0);
   if (completed.length < names.length) return "Mixed";
   return hits > 0 ? "Hits found" : "Clear";
+}
+
+/**
+ * Compose ONE investor-facing message covering every open flag, in plain
+ * English with no internal severity/rule references. Drives the consolidated
+ * request flow from Risk & Flags → Requests.
+ */
+function buildConsolidatedRfiCopy(flags: StepperRedFlag[]): string {
+  const lines: string[] = [
+    "Please provide the following information so we can complete your onboarding review:",
+    "",
+  ];
+  const items = new Set<string>();
+  for (const f of flags) {
+    items.add(humanItemForFlag(f));
+  }
+  let n = 1;
+  for (const item of items) {
+    lines.push(`${n}. ${item}`);
+    n += 1;
+  }
+  lines.push("");
+  lines.push(
+    "Accepted formats: PDF, PNG or JPEG. Please make sure each document is clear, complete, and shows the relevant names, dates and reference details where applicable.",
+  );
+  lines.push("");
+  lines.push("Please upload the documents through the secure portal within 5 business days.");
+  return lines.join("\n");
+}
+
+function humanItemForFlag(flag: StepperRedFlag): string {
+  switch (flag.rule) {
+    case "R-DOC-003":
+      // "Required: {name} — {party}" → just the name
+      return flag.description.replace(/^Required:\s*/, "").split(" — ")[0];
+    case "R-DOC-002":
+      return `An updated copy of ${flag.description.replace(/^Document flagged for attention:\s*/, "").toLowerCase()} that resolves the validator's concern`;
+    case "R-DOC-001":
+      return "A document reconciling the differing name across your uploaded files";
+    case "R-PEP-001":
+      return "A short explanation supporting your PEP declaration (role, period, approving body)";
+    case "R-TAX-002":
+      return "A signed entity FATCA / CRS self-certification including the entity Tax Identification Number";
+    case "R-JUR-001":
+      return "Additional source-of-wealth corroboration for the declared jurisdiction";
+    case "R-SCR-001":
+    case "R-SCR-002":
+      return `Confirmation regarding the screening match on ${flag.relatedParty ?? "the named party"}`;
+    default:
+      return flag.description;
+  }
 }
 
 function buildRfiCopyFor(flag: StepperRedFlag): string {

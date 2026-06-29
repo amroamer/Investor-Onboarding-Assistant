@@ -158,8 +158,8 @@ export function SubmittedStep({ caseData }: { caseData: StepperCase }) {
           </Button>
           <Button asChild data-testid="submitted-view-compliance">
             <Link
-              to="/compliance/case/$caseId"
-              params={{ caseId: caseData.caseId }}
+              to="/compliance"
+              search={{ case: caseData.caseId }}
             >
               View compliance workspace <ArrowRight className="size-4" />
             </Link>

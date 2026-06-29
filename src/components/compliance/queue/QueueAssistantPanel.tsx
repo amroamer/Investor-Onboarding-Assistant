@@ -1,10 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
-  Activity,
-  AlertCircle,
   CheckCircle2,
-  Clock,
   Lightbulb,
   ShieldCheck,
   Sparkles,
@@ -117,32 +114,9 @@ export function QueueAssistantPanel({
             </div>
             <h2 className="text-lg font-semibold text-primary">AI Compliance Assistant</h2>
             <div className="text-[11px] text-muted-foreground">
-              Triage support · advisory only
+              {kpis.submitted} submitted · {priorities.length} need attention
             </div>
           </div>
-        </div>
-
-        {/* KPI strip */}
-        <div className="mt-5 grid grid-cols-2 gap-2.5">
-          <KpiTile label="Submitted" value={`${kpis.submitted}`} tone="info" icon={<CheckCircle2 className="size-3" />} />
-          <KpiTile
-            label="Overdue SLA"
-            value={`${kpis.overdueSla}`}
-            tone={kpis.overdueSla > 0 ? "danger" : "neutral"}
-            icon={<Clock className="size-3" />}
-          />
-          <KpiTile
-            label="High risk"
-            value={`${kpis.highRisk}`}
-            tone={kpis.highRisk > 0 ? "warn" : "neutral"}
-            icon={<AlertCircle className="size-3" />}
-          />
-          <KpiTile
-            label="RFI in flight"
-            value={`${kpis.awaitingRfi}`}
-            tone="info"
-            icon={<Activity className="size-3" />}
-          />
         </div>
 
         {/* Top priority */}
@@ -168,8 +142,8 @@ export function QueueAssistantPanel({
                   data-testid="queue-assistant-open-top"
                 >
                   <Link
-                    to="/compliance/case/$caseId"
-                    params={{ caseId: top.caseData.caseId }}
+                    to="/compliance"
+                    search={{ case: top.caseData.caseId }}
                   >
                     Open case →
                   </Link>
@@ -201,8 +175,8 @@ export function QueueAssistantPanel({
               {priorities.slice(1, 4).map((p) => (
                 <li key={p.caseData.caseId} className="step-item-in">
                   <Link
-                    to="/compliance/case/$caseId"
-                    params={{ caseId: p.caseData.caseId }}
+                    to="/compliance"
+                    search={{ case: p.caseData.caseId }}
                     className="block rounded-lg border bg-surface px-2.5 py-2 transition-colors hover:bg-secondary"
                   >
                     <div className="flex items-baseline justify-between gap-2">
@@ -241,36 +215,6 @@ export function QueueAssistantPanel({
           AI triage is advisory. Final decisions on individual cases must be made inside the
           case cockpit by an authorised compliance officer.
         </p>
-      </div>
-    </div>
-  );
-}
-
-function KpiTile({
-  label,
-  value,
-  tone,
-  icon,
-}: {
-  label: string;
-  value: string;
-  tone: "info" | "warn" | "danger" | "neutral";
-  icon: ReactNode;
-}) {
-  const valueClass: Record<"info" | "warn" | "danger" | "neutral", string> = {
-    info: "text-primary",
-    warn: "text-[color:var(--warn)]",
-    danger: "text-destructive",
-    neutral: "text-foreground/70",
-  };
-  return (
-    <div className="rounded-lg border bg-surface px-2.5 py-2">
-      <div className="flex items-center gap-1.5 text-[9.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-        <span className="text-accent">{icon}</span>
-        {label}
-      </div>
-      <div className={cn("mt-0.5 text-[18px] font-semibold tabular-nums leading-none", valueClass[tone])}>
-        {value}
       </div>
     </div>
   );

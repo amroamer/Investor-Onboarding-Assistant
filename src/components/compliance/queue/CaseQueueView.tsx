@@ -1,27 +1,37 @@
-import { useMemo, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  CheckCircle2,
-  Clock,
   Filter,
   Inbox,
   RefreshCw,
   Search,
-  ShieldAlert,
-  Sparkles,
+  Trash2,
+  X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { StepCanvas } from "@/components/stepper/intel";
 import { useStepperCaseList } from "@/lib/stepper/store";
 import { getStepperComplianceState } from "@/server/stepper/compliance";
+import { deleteStepperCase } from "@/server/stepper/cases";
+import type { StepperCase } from "@/lib/stepper/types";
 import type { StepperComplianceState } from "@/lib/stepper/compliance";
-import { MetricCard } from "../primitives/MetricCard";
 import { StatusChip, type StatusTone } from "../primitives/StatusChip";
 import { WhatHowWhy } from "../primitives/WhatHowWhy";
 import { CaseQueueCard } from "./CaseQueueCard";
 import { QueueAssistantPanel } from "./QueueAssistantPanel";
+
+const LIST_QUERY_KEY = ["stepper-cases"] as const;
 import {
   computeQueueKpis,
   filterQueue,
@@ -55,10 +65,60 @@ export function CaseQueueView({
   setIncludeInProgress: (v: boolean) => void;
 }) {
   const { cases, isLoading, isFetching, refetch } = useStepperCaseList();
+  const queryClient = useQueryClient();
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<QueueFilter>("all");
   const [sort, setSort] = useState<QueueSort>("submitted-newest");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+
+  const toggleSelect = (caseId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(caseId)) next.delete(caseId);
+      else next.add(caseId);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  // Prune orphan selections — when a case is deleted from elsewhere (single
+  // delete via card menu) the selection set could still hold its id.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const ids = new Set(cases.map((c) => c.caseId));
+      const next = new Set<string>();
+      for (const id of prev) if (ids.has(id)) next.add(id);
+      return next.size === prev.size ? prev : next;
+    });
+  }, [cases]);
+
+  // Bulk delete — fan-out N delete calls in parallel, then optimistically
+  // strip the rows from the cases list.
+  const bulkDelete = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(
+        ids.map((caseId) => deleteStepperCase({ data: { caseId } })),
+      );
+      return ids;
+    },
+    onSuccess: (ids) => {
+      queryClient.setQueryData<StepperCase[]>(LIST_QUERY_KEY, (prev) =>
+        (prev ?? []).filter((c) => !ids.includes(c.caseId)),
+      );
+      for (const id of ids) {
+        queryClient.removeQueries({ queryKey: ["stepper-compliance-state", id] });
+      }
+      toast.success(`Deleted ${ids.length} case${ids.length === 1 ? "" : "s"}`);
+      setBulkConfirmOpen(false);
+      clearSelection();
+    },
+    onError: (e) => {
+      toast.error(e instanceof Error ? e.message : "Bulk delete failed.");
+    },
+  });
 
   // Prefetch compliance state for every visible case. `useQueries` lets us
   // declare N queries that all share the same React Query cache the
@@ -124,43 +184,84 @@ export function CaseQueueView({
         </Button>
       </header>
 
-      {/* KPI strip */}
-      <section className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <MetricCard
-          label="Total"
-          count={kpis.total}
-          tone="info"
-          icon={<Inbox className="size-3" />}
-        />
-        <MetricCard
-          label="Submitted"
-          count={kpis.submitted}
-          tone={kpis.submitted > 0 ? "success" : "neutral"}
-          icon={<CheckCircle2 className="size-3" />}
-        />
-        <MetricCard
+      {/* Bulk action bar — only rendered when ≥1 case selected */}
+      {selectedIds.size > 0 && (
+        <section
+          data-testid="queue-bulk-actions"
+          className="step-item-in sticky top-3 z-30 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent/40 bg-accent/[0.05] px-4 py-3 shadow-[0_8px_22px_rgba(11,143,160,0.12)] backdrop-blur"
+        >
+          <div className="flex items-center gap-3">
+            <span className="grid size-8 place-items-center rounded-full bg-accent text-accent-foreground text-[12px] font-semibold">
+              {selectedIds.size}
+            </span>
+            <div>
+              <div className="text-[13px] font-semibold text-foreground">
+                {selectedIds.size} case{selectedIds.size === 1 ? "" : "s"} selected
+              </div>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="text-[11px] text-muted-foreground hover:underline"
+                data-testid="queue-bulk-clear"
+              >
+                Clear selection
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearSelection}
+              data-testid="queue-bulk-cancel"
+            >
+              <X className="size-3.5" /> Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setBulkConfirmOpen(true)}
+              data-testid="queue-bulk-delete"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              <Trash2 className="size-3.5" />
+              Delete {selectedIds.size} case{selectedIds.size === 1 ? "" : "s"}
+            </Button>
+          </div>
+        </section>
+      )}
+
+      {/* KPI strip — unified band rather than 6 floating cards */}
+      <section
+        data-testid="queue-kpis"
+        className="step-item-in flex flex-wrap items-stretch gap-x-8 gap-y-4 rounded-2xl border bg-surface px-6 py-4 shadow-[0_2px_8px_rgba(12,20,48,0.04)]"
+      >
+        <Stat label="Total" value={kpis.total} tone="neutral" />
+        <StatDivider />
+        <Stat label="Submitted" value={kpis.submitted} tone={kpis.submitted > 0 ? "success" : "neutral"} />
+        <StatDivider />
+        <Stat
           label="Awaiting screening"
-          count={kpis.awaitingScreening}
+          value={kpis.awaitingScreening}
           tone={kpis.awaitingScreening > 0 ? "warn" : "neutral"}
-          icon={<Sparkles className="size-3" />}
         />
-        <MetricCard
+        <StatDivider />
+        <Stat
           label="RFI in flight"
-          count={kpis.awaitingRfi}
+          value={kpis.awaitingRfi}
           tone={kpis.awaitingRfi > 0 ? "info" : "neutral"}
         />
-        <MetricCard
+        <StatDivider />
+        <Stat
           label="Overdue SLA"
-          count={kpis.overdueSla}
+          value={kpis.overdueSla}
           tone={kpis.overdueSla > 0 ? "danger" : "neutral"}
-          icon={<Clock className="size-3" />}
-          chip={kpis.overdueSla > 0 ? { tone: "danger", label: "breach" } : undefined}
+          suffix={kpis.overdueSla > 0 ? "breach" : undefined}
         />
-        <MetricCard
+        <StatDivider />
+        <Stat
           label="High risk"
-          count={kpis.highRisk}
+          value={kpis.highRisk}
           tone={kpis.highRisk > 0 ? "warn" : "neutral"}
-          icon={<ShieldAlert className="size-3" />}
         />
       </section>
 
@@ -218,10 +319,10 @@ export function CaseQueueView({
               onClick={() => setFilter(f.key)}
               aria-pressed={filter === f.key}
               className={cn(
-                "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                "rounded-full px-3 py-1 text-[11px] font-semibold transition-all",
                 filter === f.key
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-muted-foreground hover:text-foreground",
+                  ? "bg-primary text-primary-foreground shadow-[0_2px_6px_rgba(5,0,68,0.18)] ring-1 ring-primary/40"
+                  : "border border-border bg-surface text-muted-foreground hover:border-accent/40 hover:text-foreground",
               )}
               data-testid={`queue-filter-${f.key}`}
             >
@@ -248,7 +349,12 @@ export function CaseQueueView({
             aria-label="Compliance case queue"
           >
             {sorted.map((c) => (
-              <CaseQueueCard key={c.caseId} caseData={c} />
+              <CaseQueueCard
+                key={c.caseId}
+                caseData={c}
+                selected={selectedIds.has(c.caseId)}
+                onToggleSelect={toggleSelect}
+              />
             ))}
           </ul>
         )}
@@ -256,9 +362,17 @@ export function CaseQueueView({
 
       <WhatHowWhy
         variant="card"
-        what="Every submitted stepper case is here, ranked by the same SLA + risk signals the cockpit uses."
-        how="Filter chips narrow by outcome and state; sort options swap the priority dimension. Click any card to open the full case cockpit."
-        why="A queue keeps reviewer attention on the cases that need it — not the most recent one that happened to be picked from a dropdown."
+        what="Ranks submitted cases by SLA urgency, risk band, screening status, and open flags."
+        how="Each card's priority reason combines case status, submission age, open flags, risk score, and screening progress. The card's 'Next' line tells you the single most-leveraged action."
+        why="Reviewers should focus first on cases that need attention, not only the newest case. Sanctions hits, SLA breaches and high-risk bands all rise to the top automatically."
+      />
+
+      <BulkDeleteDialog
+        open={bulkConfirmOpen}
+        onOpenChange={setBulkConfirmOpen}
+        count={selectedIds.size}
+        busy={bulkDelete.isPending}
+        onConfirm={() => bulkDelete.mutate(Array.from(selectedIds))}
       />
     </div>
   );
@@ -272,6 +386,105 @@ export function CaseQueueView({
       }
     />
   );
+}
+
+function BulkDeleteDialog({
+  open,
+  onOpenChange,
+  count,
+  busy,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  count: number;
+  busy: boolean;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onOpenChange(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, busy, onOpenChange]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md" data-testid="bulk-delete-dialog">
+        <DialogHeader>
+          <DialogTitle>
+            Delete {count} case{count === 1 ? "" : "s"}?
+          </DialogTitle>
+          <DialogDescription>
+            This permanently removes the selected cases and any associated screening, RFIs and
+            audit history. This cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+            disabled={busy}
+            data-testid="bulk-delete-cancel"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={onConfirm}
+            disabled={busy}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            data-testid="bulk-delete-confirm"
+          >
+            <Trash2 className="size-3.5" />
+            {busy ? "Deleting…" : `Delete ${count}`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone,
+  suffix,
+}: {
+  label: string;
+  value: number;
+  tone: "neutral" | "success" | "warn" | "danger" | "info";
+  suffix?: string;
+}) {
+  const valueClass: Record<typeof tone, string> = {
+    neutral: "text-primary",
+    success: "text-[color:var(--success)]",
+    warn: "text-[color:var(--warn)]",
+    danger: "text-destructive",
+    info: "text-primary",
+  };
+  return (
+    <div className="min-w-[88px]">
+      <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 flex items-baseline gap-1.5">
+        <span className={cn("text-[26px] font-semibold tabular-nums leading-none", valueClass[tone])}>
+          {value}
+        </span>
+        {suffix && (
+          <span className="text-[10px] uppercase tracking-[0.06em] text-destructive">
+            {suffix}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatDivider() {
+  return <span className="hidden h-10 w-px self-center bg-border sm:block" aria-hidden />;
 }
 
 function SkeletonList() {

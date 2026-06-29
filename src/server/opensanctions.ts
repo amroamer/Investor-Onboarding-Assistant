@@ -3,11 +3,28 @@
  * server fn (src/server/screening.ts) and the stepper compliance server fn
  * (src/server/stepper/compliance.ts). Keep this dependency-free so it can
  * also be called directly from tests with an injected `fetchFn`.
+ *
+ * Authentication: OpenSanctions's hosted `/search` and `/match` endpoints
+ * require an API key (https://www.opensanctions.org/api/). Set
+ *   OPENSANCTIONS_API_KEY=...
+ * in your environment (.env) for screening to work end-to-end. Without it,
+ * the API returns 401 Unauthorized and screening fails with a clear message.
+ *
+ * To bypass for local development against a self-hosted instance, set
+ *   OPENSANCTIONS_BASE_URL=http://localhost:8000
+ * and the request will go there instead of the hosted API.
  */
 
 const OPENSANCTIONS_BASE = process.env.OPENSANCTIONS_BASE_URL ?? "https://api.opensanctions.org";
+const OPENSANCTIONS_API_KEY = process.env.OPENSANCTIONS_API_KEY ?? "";
 
 export const OPENSANCTIONS_PROVIDER = "OpenSanctions";
+
+/** True when an API key has been configured. Lets callers degrade gracefully
+ *  (e.g. show a banner) instead of waiting for a 401 round-trip. */
+export function hasOpenSanctionsKey(): boolean {
+  return OPENSANCTIONS_API_KEY.length > 0;
+}
 
 export interface OpenSanctionsMatch {
   id: string;
@@ -54,10 +71,30 @@ export async function searchOpenSanctions(
   url.searchParams.set("limit", String(opts?.limit ?? 5));
 
   const f = opts?.fetchFn ?? fetch;
-  const response = await f(url.toString(), {
-    headers: { Accept: "application/json", "User-Agent": "investor-onboarding-assistant/1.0" },
-  });
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "User-Agent": "investor-onboarding-assistant/1.0",
+  };
+  if (OPENSANCTIONS_API_KEY) {
+    // OpenSanctions accepts `Authorization: ApiKey <key>`. This is the only
+    // way to use the hosted API at scale; without it the server returns 401.
+    headers.Authorization = `ApiKey ${OPENSANCTIONS_API_KEY}`;
+  }
+
+  const response = await f(url.toString(), { headers });
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        OPENSANCTIONS_API_KEY
+          ? `OpenSanctions rejected the configured API key (${response.status} ${response.statusText}). Verify OPENSANCTIONS_API_KEY is valid and has search permission.`
+          : `OpenSanctions ${response.status} ${response.statusText}. The hosted API requires authentication — set OPENSANCTIONS_API_KEY in your .env (see https://www.opensanctions.org/api/).`,
+      );
+    }
+    if (response.status === 429) {
+      throw new Error(
+        `OpenSanctions rate limit hit (429). Wait a minute or upgrade your plan.`,
+      );
+    }
     throw new Error(`OpenSanctions ${response.status}: ${response.statusText}`);
   }
   const body = (await response.json()) as OpenSanctionsResponse;
