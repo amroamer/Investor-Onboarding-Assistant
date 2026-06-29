@@ -18,7 +18,7 @@ export interface RequirementGroup {
   items: RequirementItem[];
 }
 
-// ─── Shared building blocks ────────────────────────────────────────────────
+// ─── Shared identity / per-person items ──────────────────────────────────
 
 const PHOTO_ID: RequirementItem = {
   key: "photo_id",
@@ -40,7 +40,7 @@ const PHOTO_ID: RequirementItem = {
 const PROOF_OF_ADDRESS: RequirementItem = {
   key: "proof_of_address",
   name: "Proof of residential address",
-  note: "Utility bill or bank statement issued within the last 6 months",
+  note: "Issued within the last 6 months",
   mustInclude: [
     "Full name matching the photo ID",
     "Full residential address",
@@ -53,10 +53,27 @@ const PROOF_OF_ADDRESS: RequirementItem = {
   acceptedDocumentTypes: ["proof_of_address"],
 };
 
-const TAX_RESIDENCY: RequirementItem = {
+const PEP_DECLARATION: RequirementItem = {
+  key: "pep_declaration",
+  name: "PEP declaration",
+  note: "Including immediate family and close associates",
+  mustInclude: [
+    "Statement of PEP status (self, family or close associates)",
+    "Names and relationships of any disclosed PEPs",
+    "Signature and date",
+  ],
+  examples: ["Signed PEP self-declaration form"],
+  acceptedFormats: ["PDF"],
+  rejectedIf: ["Unsigned", "PEP section left blank"],
+  acceptedDocumentTypes: ["pep_declaration"],
+};
+
+// ─── Individual-only items ───────────────────────────────────────────────
+
+const TAX_RESIDENCY_INDIVIDUAL: RequirementItem = {
   key: "tax_residency",
   name: "Tax residency self-certification",
-  note: "CRS / FATCA declaration",
+  note: "CRS / FATCA for you",
   mustInclude: [
     "Country (or countries) of tax residency",
     "Taxpayer Identification Number(s) where applicable",
@@ -96,24 +113,84 @@ const SOURCE_OF_FUNDS: RequirementItem = {
   acceptedDocumentTypes: ["bank_statement", "source_of_funds_evidence"],
 };
 
-const PEP_DECLARATION: RequirementItem = {
-  key: "pep_declaration",
-  name: "PEP declaration",
-  note: "Including immediate family and close associates",
-  mustInclude: [
-    "Statement of PEP status (self, family or close associates)",
-    "Names and relationships of any disclosed PEPs",
-    "Signature and date",
-  ],
-  examples: ["Signed PEP self-declaration form"],
+// ─── Entity-level items (shared across LP / Corp / Trust / Regulated) ────
+
+const TAX_RESIDENCY_ENTITY: RequirementItem = {
+  key: "entity_tax_residency",
+  name: "Tax residency self-certification",
+  note: "CRS / FATCA for the entity",
   acceptedFormats: ["PDF"],
-  rejectedIf: ["Unsigned", "PEP section left blank"],
-  acceptedDocumentTypes: ["pep_declaration"],
+  acceptedDocumentTypes: ["fatca_declaration"],
 };
+
+const ENTITY_SOURCE_OF_WEALTH: RequirementItem = {
+  key: "entity_source_of_wealth",
+  name: "Source of Wealth confirmation",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["source_of_funds_evidence", "bank_statement"],
+};
+
+const ENTITY_SOURCE_OF_FUNDS: RequirementItem = {
+  key: "entity_source_of_funds",
+  name: "Source of Funds for this subscription",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["bank_statement", "source_of_funds_evidence"],
+};
+
+const AUTHORISED_SIGNATORY_LIST: RequirementItem = {
+  key: "authorised_signatory_list",
+  name: "Authorised signatory list",
+  note: "Or board resolution authorising the subscription",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["authorised_signatory_list", "authority_to_act"],
+};
+
+const AUTHORISED_SIGNATORY_LIST_SPECIMEN: RequirementItem = {
+  ...AUTHORISED_SIGNATORY_LIST,
+  note: "With specimen signatures",
+};
+
+// ─── Trust-specific items ────────────────────────────────────────────────
+
+const TRUST_DEED: RequirementItem = {
+  key: "trust_deed",
+  name: "Trust Deed",
+  note: "Including any deeds of variation or appointment",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["trust_deed", "articles_of_association"],
+};
+
+const SCHEDULE_OF_TRUST_PARTIES: RequirementItem = {
+  key: "schedule_of_trust_parties",
+  name: "Schedule of trustees, settlor(s), protector(s) and named beneficiaries",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["schedule_of_trust_parties", "register_of_members", "register_of_directors"],
+};
+
+const TAX_RESIDENCY_TRUST: RequirementItem = {
+  ...TAX_RESIDENCY_ENTITY,
+  note: "CRS / FATCA for the trust",
+};
+
+const SOURCE_OF_WEALTH_SETTLOR: RequirementItem = {
+  key: "source_of_wealth_settlor",
+  name: "Source of Wealth of the settlor",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["source_of_funds_evidence", "bank_statement"],
+};
+
+const AUTHORITY_TO_ACT_TRUST: RequirementItem = {
+  key: "authority_to_act_trust",
+  name: "Authority to act for the trust",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["authority_to_act", "authorised_signatory_list"],
+};
+
+// ─── Corporation / Private Trust Corporation items ───────────────────────
 
 const CERTIFICATE_OF_INCORPORATION: RequirementItem = {
   key: "certificate_of_incorporation",
-  name: "Certificate of Incorporation / Formation",
+  name: "Certificate of Incorporation",
   mustInclude: [
     "Registered legal name",
     "Registration number and date",
@@ -124,62 +201,116 @@ const CERTIFICATE_OF_INCORPORATION: RequirementItem = {
   acceptedDocumentTypes: ["certificate_of_incorporation", "certificate_of_formation"],
 };
 
-const ARTICLES: RequirementItem = {
-  key: "articles_of_association",
-  name: "Articles of Association / Operating Agreement / Trust Deed",
-  note: "Current constitutional document of the entity",
+const MEMORANDUM_AND_ARTICLES: RequirementItem = {
+  key: "memorandum_and_articles",
+  name: "Memorandum and Articles of Association",
+  note: "Certified English translation if not in English",
   acceptedFormats: ["PDF"],
-  acceptedDocumentTypes: ["articles_of_association", "limited_partnership_agreement"],
+  acceptedDocumentTypes: ["articles_of_association"],
 };
 
 const REGISTER_OF_DIRECTORS: RequirementItem = {
   key: "register_of_directors",
-  name: "Register of directors / managers",
+  name: "Register of directors",
   acceptedFormats: ["PDF"],
   acceptedDocumentTypes: ["register_of_directors"],
 };
 
-const REGISTER_OF_MEMBERS: RequirementItem = {
-  key: "register_of_members",
-  name: "Register of members / shareholders",
+const REGISTER_OF_SHAREHOLDERS: RequirementItem = {
+  key: "register_of_shareholders",
+  name: "Register of shareholders / members",
   acceptedFormats: ["PDF"],
   acceptedDocumentTypes: ["register_of_members"],
 };
 
-const LPA: RequirementItem = {
-  key: "limited_partnership_agreement",
-  name: "Limited Partnership Agreement (LPA)",
-  note: "Executed copy including all signature pages and amendments",
+const TAX_RESIDENCY_CORP: RequirementItem = {
+  ...TAX_RESIDENCY_ENTITY,
+  note: "CRS / FATCA for the entity",
+};
+
+const INTERMEDIATE_REGISTER_OF_MEMBERS: RequirementItem = {
+  key: "intermediate_register_of_members",
+  name: "Register of members / equivalent ownership evidence",
+  note: "For every intermediate entity",
   acceptedFormats: ["PDF"],
-  acceptedDocumentTypes: ["limited_partnership_agreement"],
+  acceptedDocumentTypes: ["register_of_members"],
+};
+
+// ─── Limited Partnership items ───────────────────────────────────────────
+
+const CERTIFICATE_OF_LIMITED_PARTNERSHIP: RequirementItem = {
+  key: "certificate_of_limited_partnership",
+  name: "Certificate of Limited Partnership",
+  note: "Or equivalent registration certificate",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["certificate_of_incorporation", "certificate_of_formation"],
+};
+
+const LIMITED_PARTNERSHIP_AGREEMENT: RequirementItem = {
+  key: "limited_partnership_agreement",
+  name: "Limited Partnership Agreement",
+  note: "Executed version, including any amendments",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["limited_partnership_agreement", "articles_of_association"],
 };
 
 const REGISTER_OF_PARTNERS: RequirementItem = {
   key: "register_of_partners",
   name: "Register of partners",
+  note: "Identifying all general and limited partners",
   acceptedFormats: ["PDF"],
   acceptedDocumentTypes: ["register_of_members", "register_of_directors"],
 };
 
-const ENTITY_TAX_RESIDENCY: RequirementItem = {
-  ...TAX_RESIDENCY,
-  key: "entity_tax_residency",
-  name: "Entity tax residency self-certification",
-  note: "CRS / FATCA classification of the entity itself",
+const TAX_RESIDENCY_LP: RequirementItem = {
+  ...TAX_RESIDENCY_ENTITY,
+  note: "CRS / FATCA for the partnership",
 };
 
-const ENTITY_SOURCE_OF_FUNDS: RequirementItem = {
-  ...SOURCE_OF_FUNDS,
-  key: "entity_source_of_funds",
+const GP_CONSTITUTIONAL_DOCS: RequirementItem = {
+  key: "gp_constitutional_docs",
+  name: "Constitutional documents of the GP",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["certificate_of_incorporation", "certificate_of_formation", "articles_of_association"],
 };
 
-const ENTITY_SOURCE_OF_WEALTH: RequirementItem = {
-  ...SOURCE_OF_WEALTH,
-  key: "entity_source_of_wealth",
-  name: "Source of wealth / capital",
+const GP_REGISTER_OF_DIRECTORS: RequirementItem = {
+  key: "gp_register_of_directors",
+  name: "Register of directors / managers of the GP",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["register_of_directors"],
 };
 
-// ─── Per-form requirement groups ───────────────────────────────────────────
+const EVIDENCE_OF_AUTHORITY_PARTNERSHIP: RequirementItem = {
+  key: "evidence_of_authority_partnership",
+  name: "Evidence of authority to act for the partnership",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["authority_to_act", "authorised_signatory_list"],
+};
+
+// ─── Regulated / Listed Entity items ─────────────────────────────────────
+
+const EVIDENCE_OF_REGULATED_STATUS: RequirementItem = {
+  key: "evidence_of_regulated_status",
+  name: "Evidence of regulated status",
+  note: "Regulator name, licence number and licence scope, or stock exchange listing reference",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["evidence_of_regulated_status"],
+};
+
+const AUDITED_FINANCIAL_STATEMENTS: RequirementItem = {
+  key: "audited_financial_statements",
+  name: "Most recent audited financial statements",
+  acceptedFormats: ["PDF"],
+  acceptedDocumentTypes: ["audited_financial_statements"],
+};
+
+const TAX_RESIDENCY_REGULATED: RequirementItem = {
+  ...TAX_RESIDENCY_ENTITY,
+  note: "CRS / FATCA for the entity",
+};
+
+// ─── Per-form requirement bundles ────────────────────────────────────────
 
 export function requirementsFor(form: StepperLegalForm): RequirementGroup[] {
   switch (form) {
@@ -187,87 +318,33 @@ export function requirementsFor(form: StepperLegalForm): RequirementGroup[] {
       return [
         {
           party: "Investor (individual)",
-          items: [PHOTO_ID, PROOF_OF_ADDRESS, TAX_RESIDENCY, SOURCE_OF_WEALTH, SOURCE_OF_FUNDS, PEP_DECLARATION],
+          items: [
+            PHOTO_ID,
+            PROOF_OF_ADDRESS,
+            TAX_RESIDENCY_INDIVIDUAL,
+            SOURCE_OF_WEALTH,
+            SOURCE_OF_FUNDS,
+            PEP_DECLARATION,
+          ],
         },
       ];
 
-    case "Corporation":
+    case "Regulated or Listed Entity":
       return [
         {
-          party: "The investing entity",
+          party: "The Regulated or Listed Entity",
           items: [
-            CERTIFICATE_OF_INCORPORATION,
-            ARTICLES,
-            REGISTER_OF_DIRECTORS,
-            REGISTER_OF_MEMBERS,
-            ENTITY_TAX_RESIDENCY,
-            ENTITY_SOURCE_OF_WEALTH,
+            EVIDENCE_OF_REGULATED_STATUS,
+            AUDITED_FINANCIAL_STATEMENTS,
+            AUTHORISED_SIGNATORY_LIST,
+            TAX_RESIDENCY_REGULATED,
             ENTITY_SOURCE_OF_FUNDS,
           ],
         },
         {
-          party: "Each director and authorised signatory",
-          items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION],
+          party: "Authorised signatories acting on this subscription",
+          items: [PHOTO_ID, PROOF_OF_ADDRESS],
         },
-        {
-          party: "Each beneficial owner ≥ 25%",
-          items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION],
-        },
-      ];
-
-    case "LLC":
-      return [
-        {
-          party: "The LLC",
-          items: [
-            { ...CERTIFICATE_OF_INCORPORATION, name: "Certificate of Formation" },
-            { ...ARTICLES, key: "operating_agreement", name: "Operating Agreement" },
-            { ...REGISTER_OF_MEMBERS, name: "Register of members" },
-            ENTITY_TAX_RESIDENCY,
-            ENTITY_SOURCE_OF_WEALTH,
-            ENTITY_SOURCE_OF_FUNDS,
-          ],
-        },
-        { party: "Each managing member and authorised signatory", items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION] },
-      ];
-
-    case "Limited Partnership":
-      return [
-        {
-          party: "The Limited Partnership",
-          items: [
-            { ...CERTIFICATE_OF_INCORPORATION, name: "Certificate of Limited Partnership" },
-            LPA,
-            REGISTER_OF_PARTNERS,
-            ENTITY_TAX_RESIDENCY,
-            ENTITY_SOURCE_OF_WEALTH,
-            ENTITY_SOURCE_OF_FUNDS,
-          ],
-        },
-        {
-          party: "General Partner(s)",
-          items: [
-            { ...CERTIFICATE_OF_INCORPORATION, key: "gp_constitutional_docs", name: "Constitutional documents of the GP" },
-            REGISTER_OF_DIRECTORS,
-          ],
-        },
-        { party: "Each UBO ≥ 25% and each authorised signatory", items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION] },
-      ];
-
-    case "General Partnership / LLP":
-      return [
-        {
-          party: "The Partnership",
-          items: [
-            { ...CERTIFICATE_OF_INCORPORATION, name: "Certificate of registration" },
-            { ...ARTICLES, key: "partnership_agreement", name: "Partnership Agreement (executed)" },
-            REGISTER_OF_PARTNERS,
-            ENTITY_TAX_RESIDENCY,
-            ENTITY_SOURCE_OF_WEALTH,
-            ENTITY_SOURCE_OF_FUNDS,
-          ],
-        },
-        { party: "Each partner and authorised signatory", items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION] },
       ];
 
     case "Trust":
@@ -275,142 +352,72 @@ export function requirementsFor(form: StepperLegalForm): RequirementGroup[] {
         {
           party: "The Trust",
           items: [
-            { ...ARTICLES, key: "trust_deed", name: "Trust Deed (executed)" },
-            { ...REGISTER_OF_MEMBERS, key: "register_of_trustees", name: "Register of trustees, settlors and beneficiaries" },
-            ENTITY_TAX_RESIDENCY,
-            ENTITY_SOURCE_OF_WEALTH,
+            TRUST_DEED,
+            SCHEDULE_OF_TRUST_PARTIES,
+            TAX_RESIDENCY_TRUST,
+            SOURCE_OF_WEALTH_SETTLOR,
             ENTITY_SOURCE_OF_FUNDS,
           ],
         },
-        { party: "Each trustee, settlor and named beneficiary", items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION] },
-      ];
-
-    case "Foundation":
-      return [
         {
-          party: "The Foundation",
-          items: [
-            { ...CERTIFICATE_OF_INCORPORATION, name: "Certificate of formation of the foundation" },
-            { ...ARTICLES, key: "foundation_charter", name: "Foundation charter / by-laws" },
-            { ...REGISTER_OF_MEMBERS, key: "register_of_council", name: "Register of council / board members" },
-            ENTITY_TAX_RESIDENCY,
-            ENTITY_SOURCE_OF_WEALTH,
-            ENTITY_SOURCE_OF_FUNDS,
-          ],
+          party: "Each trustee (if a corporate trustee, also its constitutional documents)",
+          items: [PHOTO_ID, PROOF_OF_ADDRESS, AUTHORITY_TO_ACT_TRUST],
         },
-        { party: "Each council/board member and authorised signatory", items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION] },
+        {
+          party: "Settlor, protector and each named beneficiary ≥ 25%",
+          items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION],
+        },
       ];
 
-    case "Investment Fund":
+    case "Corporation or Private Trust Corporation":
       return [
         {
-          party: "The Fund",
+          party: "The Investing Entity",
           items: [
-            { ...CERTIFICATE_OF_INCORPORATION, name: "Fund formation document" },
-            { ...ARTICLES, key: "fund_ppm", name: "Private Placement Memorandum / Prospectus" },
-            { ...ARTICLES, key: "fund_constitutional", name: "Fund constitutional document" },
-            ENTITY_TAX_RESIDENCY,
+            CERTIFICATE_OF_INCORPORATION,
+            MEMORANDUM_AND_ARTICLES,
+            REGISTER_OF_DIRECTORS,
+            REGISTER_OF_SHAREHOLDERS,
+            AUTHORISED_SIGNATORY_LIST,
+            TAX_RESIDENCY_CORP,
             ENTITY_SOURCE_OF_WEALTH,
             ENTITY_SOURCE_OF_FUNDS,
           ],
         },
         {
-          party: "Fund manager / GP",
-          items: [
-            { ...CERTIFICATE_OF_INCORPORATION, key: "manager_constitutional", name: "Constitutional documents of the manager" },
-            { ...PEP_DECLARATION, key: "regulator_licence", name: "Regulatory licence (if regulated)" },
-          ],
+          party: "Each ownership layer up to ultimate beneficial owners",
+          items: [INTERMEDIATE_REGISTER_OF_MEMBERS],
+        },
+        {
+          party: "Each UBO ≥ 25%, each director and each authorised signatory",
+          items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION],
         },
       ];
 
-    case "Pension Fund":
+    case "Limited Partnership":
       return [
         {
-          party: "The Pension Fund",
+          party: "The Limited Partnership",
           items: [
-            { ...CERTIFICATE_OF_INCORPORATION, name: "Pension scheme registration certificate" },
-            { ...ARTICLES, key: "pension_rules", name: "Trust deed / scheme rules" },
-            { ...PEP_DECLARATION, key: "regulator_letter", name: "Regulator authorisation letter" },
-            ENTITY_TAX_RESIDENCY,
-            ENTITY_SOURCE_OF_WEALTH,
-            ENTITY_SOURCE_OF_FUNDS,
+            CERTIFICATE_OF_LIMITED_PARTNERSHIP,
+            LIMITED_PARTNERSHIP_AGREEMENT,
+            REGISTER_OF_PARTNERS,
+            AUTHORISED_SIGNATORY_LIST_SPECIMEN,
+            TAX_RESIDENCY_LP,
           ],
         },
-        { party: "Each trustee and authorised signatory", items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION] },
-      ];
-
-    case "Government / Sovereign":
-      return [
         {
-          party: "The Government / Sovereign entity",
+          party: "General Partner(s)",
           items: [
-            { ...CERTIFICATE_OF_INCORPORATION, name: "Establishing legislation or decree" },
-            { ...ARTICLES, key: "sovereign_mandate", name: "Investment mandate / by-laws" },
-            { ...PEP_DECLARATION, key: "ministerial_authority", name: "Letter of authority from supervising ministry" },
-            ENTITY_TAX_RESIDENCY,
+            GP_CONSTITUTIONAL_DOCS,
+            GP_REGISTER_OF_DIRECTORS,
+            EVIDENCE_OF_AUTHORITY_PARTNERSHIP,
           ],
         },
-        { party: "Each authorised signatory", items: [PHOTO_ID, PEP_DECLARATION] },
-      ];
-
-    case "Regulated or Listed Entity":
-      return [
         {
-          party: "The Regulated or Listed entity",
-          items: [
-            { ...CERTIFICATE_OF_INCORPORATION, name: "Certificate of incorporation" },
-            { ...PEP_DECLARATION, key: "regulator_licence", name: "Regulator licence or listing reference" },
-            { ...ARTICLES, key: "latest_filing", name: "Latest annual filing / accounts" },
-            ENTITY_TAX_RESIDENCY,
-          ],
+          party: "Each Beneficial Owner ≥ 25% and each Authorised Signatory",
+          items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION],
         },
-        { party: "Each director and authorised signatory", items: [PHOTO_ID, PEP_DECLARATION] },
-      ];
-
-    case "Charity / Endowment / NGO":
-      return [
-        {
-          party: "The Charity / Endowment / NGO",
-          items: [
-            { ...CERTIFICATE_OF_INCORPORATION, name: "Charity / NGO registration certificate" },
-            { ...ARTICLES, key: "governing_document", name: "Governing document (constitution, deed or by-laws)" },
-            { ...REGISTER_OF_MEMBERS, key: "register_of_trustees", name: "Register of trustees / board members" },
-            ENTITY_TAX_RESIDENCY,
-            ENTITY_SOURCE_OF_WEALTH,
-            ENTITY_SOURCE_OF_FUNDS,
-          ],
-        },
-        { party: "Each trustee and authorised signatory", items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION] },
-      ];
-
-    case "Estate":
-      return [
-        {
-          party: "The Estate",
-          items: [
-            { ...CERTIFICATE_OF_INCORPORATION, key: "grant_of_representation", name: "Grant of probate / letters of administration" },
-            { ...ARTICLES, key: "will_or_intestacy", name: "Will or intestacy declaration" },
-            ENTITY_TAX_RESIDENCY,
-            ENTITY_SOURCE_OF_WEALTH,
-            ENTITY_SOURCE_OF_FUNDS,
-          ],
-        },
-        { party: "Each executor / administrator", items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION] },
-      ];
-
-    case "Other":
-      return [
-        {
-          party: "Core KYC pack (manual-review case)",
-          items: [
-            { ...CERTIFICATE_OF_INCORPORATION, name: "Constitutional / formation document" },
-            { ...REGISTER_OF_MEMBERS, name: "Register of owners / controllers" },
-            ENTITY_TAX_RESIDENCY,
-            ENTITY_SOURCE_OF_WEALTH,
-            ENTITY_SOURCE_OF_FUNDS,
-          ],
-        },
-        { party: "Each controller and authorised signatory", items: [PHOTO_ID, PROOF_OF_ADDRESS, PEP_DECLARATION] },
       ];
   }
 }
@@ -420,7 +427,7 @@ export function flatRequirements(form: StepperLegalForm): RequirementItem[] {
   return requirementsFor(form).flatMap((g) => g.items);
 }
 
-/** Returns the requirement keys that the given document type satisfies. */
+/** Returns the requirements satisfied by a given document type for the active form. */
 export function requirementsForDocumentType(
   form: StepperLegalForm,
   documentType: string,

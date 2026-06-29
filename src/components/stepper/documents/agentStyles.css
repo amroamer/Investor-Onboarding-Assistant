@@ -1,0 +1,87 @@
+/* Scoped under .doc-step-v2 — keep these animations from leaking into other steps. */
+
+@keyframes doc-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.doc-step-v2 .doc-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(99, 102, 241, 0.08) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: doc-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes doc-scan {
+  0% { transform: translateY(-100%); opacity: 0; }
+  50% { opacity: 1; }
+  100% { transform: translateY(200%); opacity: 0; }
+}
+
+.doc-step-v2 .doc-scan-line {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.doc-step-v2 .doc-scan-line::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 14%;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(99, 102, 241, 0.3) 50%,
+    transparent 100%
+  );
+  animation: doc-scan 1.6s ease-in-out infinite;
+}
+
+@keyframes doc-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.92); }
+}
+.doc-step-v2 .doc-pulse {
+  animation: doc-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes doc-typing {
+  0% { width: 0.4rem; }
+  50% { width: 1.4rem; }
+  100% { width: 0.4rem; }
+}
+.doc-step-v2 .doc-typing::after {
+  content: "·";
+  display: inline-block;
+  margin-left: 0.4rem;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  animation: doc-typing 1.2s ease-in-out infinite;
+}
+
+@keyframes doc-check-in {
+  0% { transform: scale(0.6) rotate(-10deg); opacity: 0; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+.doc-step-v2 .doc-check-in {
+  animation: doc-check-in 0.35s cubic-bezier(.2, .9, .3, 1.2) both;
+}
+
+/* Brief pulse drawn around a slot when the "X to double-check" link scrolls
+   to it — gives the eye an anchor without permanently colouring the slot. */
+@keyframes doc-attention-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(172, 66, 255, 0); }
+  20% { box-shadow: 0 0 0 4px rgba(172, 66, 255, 0.25); }
+  60% { box-shadow: 0 0 0 6px rgba(172, 66, 255, 0.10); }
+}
+.doc-attention-pulse {
+  animation: doc-attention-pulse 1.6s ease-in-out;
+}

@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as V2OnboardingRouteImport } from './routes/v2.onboarding'
 import { Route as V2OnboardingIndexRouteImport } from './routes/v2.onboarding.index'
 import { Route as V2OnboardingStepRouteImport } from './routes/v2.onboarding.$step'
+import { Route as ComplianceCaseCaseIdRouteImport } from './routes/compliance.case.$caseId'
 
 const OnboardingRoute = OnboardingRouteImport.update({
   id: '/onboarding',
@@ -46,28 +47,36 @@ const V2OnboardingStepRoute = V2OnboardingStepRouteImport.update({
   path: '/$step',
   getParentRoute: () => V2OnboardingRoute,
 } as any)
+const ComplianceCaseCaseIdRoute = ComplianceCaseCaseIdRouteImport.update({
+  id: '/case/$caseId',
+  path: '/case/$caseId',
+  getParentRoute: () => ComplianceRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/compliance': typeof ComplianceRoute
+  '/compliance': typeof ComplianceRouteWithChildren
   '/onboarding': typeof OnboardingRoute
   '/v2/onboarding': typeof V2OnboardingRouteWithChildren
+  '/compliance/case/$caseId': typeof ComplianceCaseCaseIdRoute
   '/v2/onboarding/$step': typeof V2OnboardingStepRoute
   '/v2/onboarding/': typeof V2OnboardingIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/compliance': typeof ComplianceRoute
+  '/compliance': typeof ComplianceRouteWithChildren
   '/onboarding': typeof OnboardingRoute
+  '/compliance/case/$caseId': typeof ComplianceCaseCaseIdRoute
   '/v2/onboarding/$step': typeof V2OnboardingStepRoute
   '/v2/onboarding': typeof V2OnboardingIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/compliance': typeof ComplianceRoute
+  '/compliance': typeof ComplianceRouteWithChildren
   '/onboarding': typeof OnboardingRoute
   '/v2/onboarding': typeof V2OnboardingRouteWithChildren
+  '/compliance/case/$caseId': typeof ComplianceCaseCaseIdRoute
   '/v2/onboarding/$step': typeof V2OnboardingStepRoute
   '/v2/onboarding/': typeof V2OnboardingIndexRoute
 }
@@ -78,6 +87,7 @@ export interface FileRouteTypes {
     | '/compliance'
     | '/onboarding'
     | '/v2/onboarding'
+    | '/compliance/case/$caseId'
     | '/v2/onboarding/$step'
     | '/v2/onboarding/'
   fileRoutesByTo: FileRoutesByTo
@@ -85,6 +95,7 @@ export interface FileRouteTypes {
     | '/'
     | '/compliance'
     | '/onboarding'
+    | '/compliance/case/$caseId'
     | '/v2/onboarding/$step'
     | '/v2/onboarding'
   id:
@@ -93,13 +104,14 @@ export interface FileRouteTypes {
     | '/compliance'
     | '/onboarding'
     | '/v2/onboarding'
+    | '/compliance/case/$caseId'
     | '/v2/onboarding/$step'
     | '/v2/onboarding/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ComplianceRoute: typeof ComplianceRoute
+  ComplianceRoute: typeof ComplianceRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
   V2OnboardingRoute: typeof V2OnboardingRouteWithChildren
 }
@@ -148,8 +160,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V2OnboardingStepRouteImport
       parentRoute: typeof V2OnboardingRoute
     }
+    '/compliance/case/$caseId': {
+      id: '/compliance/case/$caseId'
+      path: '/case/$caseId'
+      fullPath: '/compliance/case/$caseId'
+      preLoaderRoute: typeof ComplianceCaseCaseIdRouteImport
+      parentRoute: typeof ComplianceRoute
+    }
   }
 }
+
+interface ComplianceRouteChildren {
+  ComplianceCaseCaseIdRoute: typeof ComplianceCaseCaseIdRoute
+}
+
+const ComplianceRouteChildren: ComplianceRouteChildren = {
+  ComplianceCaseCaseIdRoute: ComplianceCaseCaseIdRoute,
+}
+
+const ComplianceRouteWithChildren = ComplianceRoute._addFileChildren(
+  ComplianceRouteChildren,
+)
 
 interface V2OnboardingRouteChildren {
   V2OnboardingStepRoute: typeof V2OnboardingStepRoute
@@ -167,7 +198,7 @@ const V2OnboardingRouteWithChildren = V2OnboardingRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ComplianceRoute: ComplianceRoute,
+  ComplianceRoute: ComplianceRouteWithChildren,
   OnboardingRoute: OnboardingRoute,
   V2OnboardingRoute: V2OnboardingRouteWithChildren,
 }

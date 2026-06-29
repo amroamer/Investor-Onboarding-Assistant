@@ -2,6 +2,7 @@ import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useStepperStore, useStepperCase } from "@/lib/stepper/store";
 import { StepperShell } from "@/components/stepper/StepperShell";
+import { DocumentViewerProvider } from "@/components/stepper/DocumentViewer";
 
 export const Route = createFileRoute("/v2/onboarding")({
   head: () => ({
@@ -33,8 +34,10 @@ function V2OnboardingLayout() {
   }
 
   return (
-    <StepperShell caseData={caseData}>
-      <Outlet />
-    </StepperShell>
+    <DocumentViewerProvider>
+      <StepperShell caseData={caseData}>
+        <Outlet />
+      </StepperShell>
+    </DocumentViewerProvider>
   );
 }

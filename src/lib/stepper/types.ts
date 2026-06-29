@@ -3,85 +3,112 @@
 // This module is a parallel, isolated rewrite of the conversational
 // onboarding flow. Nothing here is shared with src/lib/onboarding/*.
 
+/**
+ * Five investor party types. Replaces the previous 14-form taxonomy.
+ * Each form has a dedicated requirement bundle in `requirements.ts`.
+ */
 export type StepperLegalForm =
   | "Individual"
-  | "Corporation"
-  | "LLC"
   | "Limited Partnership"
-  | "General Partnership / LLP"
+  | "Corporation or Private Trust Corporation"
   | "Trust"
-  | "Foundation"
-  | "Investment Fund"
-  | "Pension Fund"
-  | "Government / Sovereign"
-  | "Regulated or Listed Entity"
-  | "Charity / Endowment / NGO"
-  | "Estate"
-  | "Other";
+  | "Regulated or Listed Entity";
 
 export const STEPPER_LEGAL_FORMS: StepperLegalForm[] = [
   "Individual",
-  "Corporation",
-  "LLC",
   "Limited Partnership",
-  "General Partnership / LLP",
+  "Corporation or Private Trust Corporation",
   "Trust",
-  "Foundation",
-  "Investment Fund",
-  "Pension Fund",
-  "Government / Sovereign",
   "Regulated or Listed Entity",
-  "Charity / Endowment / NGO",
-  "Estate",
-  "Other",
 ];
 
-export interface LegalFormGroup {
-  heading: string;
-  forms: { form: StepperLegalForm; description: string }[];
+/** Investor-facing flat list used by Step 1 — replaces the legacy nested groups. */
+export interface LegalFormChoice {
+  form: StepperLegalForm;
+  description: string;
 }
 
-export const STEPPER_LEGAL_FORM_GROUPS: LegalFormGroup[] = [
+export const STEPPER_LEGAL_FORM_CHOICES: LegalFormChoice[] = [
   {
-    heading: "Individual",
-    forms: [
-      { form: "Individual", description: "A natural person investing in their own name." },
-    ],
+    form: "Individual",
+    description: "A natural person investing in their own name.",
   },
   {
-    heading: "Private structures",
-    forms: [
-      { form: "Trust", description: "A trust arrangement with a settlor, trustee and beneficiaries." },
-      { form: "Foundation", description: "A foundation or stiftung — separate legal personality, no shareholders." },
-      { form: "Estate", description: "An estate of a deceased person, represented by an executor or administrator." },
-    ],
+    form: "Limited Partnership",
+    description:
+      "A partnership with one or more general partners and limited partners (LP).",
   },
   {
-    heading: "Operating entities",
-    forms: [
-      { form: "Corporation", description: "A company limited by shares (Ltd, Inc, GmbH, S.A., etc.)." },
-      { form: "LLC", description: "A limited liability company with members and an operating agreement." },
-      { form: "Limited Partnership", description: "A partnership with one or more general partners and limited partners." },
-      { form: "General Partnership / LLP", description: "A general partnership or limited liability partnership." },
-    ],
+    form: "Corporation or Private Trust Corporation",
+    description:
+      "A company limited by shares or a private trust corporation (Ltd, Inc, GmbH, PTC, etc.).",
   },
   {
-    heading: "Regulated & institutional",
-    forms: [
-      { form: "Investment Fund", description: "A collective investment vehicle (regulated or unregulated)." },
-      { form: "Pension Fund", description: "A pension scheme or retirement plan." },
-      { form: "Government / Sovereign", description: "A government, sovereign wealth fund or state-owned entity." },
-      { form: "Regulated or Listed Entity", description: "A bank, insurer or listed company." },
-      { form: "Charity / Endowment / NGO", description: "A charitable organisation or endowment." },
-    ],
+    form: "Trust",
+    description:
+      "A trust arrangement with a settlor, trustee(s), protector(s) and named beneficiaries.",
   },
   {
-    heading: "Special cases",
-    forms: [
-      { form: "Other", description: "Choose this if none of the above describe your investing entity. We will route the case for manual review." },
-    ],
+    form: "Regulated or Listed Entity",
+    description:
+      "A regulated firm (bank, insurer, investment fund, pension fund) or a listed entity.",
   },
 ];
+
+/**
+ * Sanitise a legacy `legalForm` string read from the database into one of the
+ * five supported values. Maps deprecated forms (LLC, Foundation, Estate,
+ * Investment Fund, Pension Fund, Government / Sovereign, Charity, Other,
+ * Corporation, General Partnership / LLP) onto the nearest current form so
+ * old cases remain readable.
+ *
+ * Returns `undefined` only if the input is empty/null. Always returns one of
+ * the five supported `StepperLegalForm` values otherwise.
+ */
+export function sanitiseLegalForm(input: string | null | undefined): StepperLegalForm | undefined {
+  if (!input) return undefined;
+  const v = String(input).trim();
+  if (v.length === 0) return undefined;
+  switch (v) {
+    case "Individual":
+      return "Individual";
+    case "Limited Partnership":
+    case "General Partnership / LLP":
+      return "Limited Partnership";
+    case "Corporation":
+    case "LLC":
+    case "Corporation or Private Trust Corporation":
+      return "Corporation or Private Trust Corporation";
+    case "Trust":
+    case "Foundation":
+    case "Estate":
+      return "Trust";
+    case "Regulated or Listed Entity":
+    case "Investment Fund":
+    case "Pension Fund":
+    case "Government / Sovereign":
+    case "Charity / Endowment / NGO":
+    case "Other":
+      return "Regulated or Listed Entity";
+    default:
+      return "Regulated or Listed Entity";
+  }
+}
+
+/** Whether the form requires a Source of Wealth narrative on the SoW/SoF step. */
+export function requiresSourceOfWealth(form: StepperLegalForm): boolean {
+  return (
+    form === "Individual" ||
+    form === "Corporation or Private Trust Corporation" ||
+    form === "Trust"
+  );
+}
+
+/** Whether the form requires a Source of Funds narrative on the SoW/SoF step. */
+export function requiresSourceOfFunds(form: StepperLegalForm): boolean {
+  // LP is the only form where SoF is covered entirely by the GP's authority docs.
+  return form !== "Limited Partnership";
+}
 
 export type StepKey =
   | "profile"
@@ -138,6 +165,13 @@ export type ChecklistItemStatus =
   | "attention"
   | "accepted";
 
+export interface SuggestedFix {
+  /** Investor-facing hint about what to upload instead. */
+  hint: string;
+  /** The requirement key that the new upload should target — drives the inline Replace button. */
+  replacesRequirement: string;
+}
+
 export interface ChecklistItem {
   id: string;
   requirementKey: string;
@@ -149,6 +183,15 @@ export interface ChecklistItem {
   sourceDocId?: string;
   issue?: string;
   remedy?: string;
+  suggestedFix?: SuggestedFix;
+}
+
+export interface CrossDocFlag {
+  kind: "name_mismatch";
+  detail: string;
+  /** Doc IDs that disagree. */
+  docIds: string[];
+  values: string[];
 }
 
 export type UploadStatus =
@@ -156,6 +199,16 @@ export type UploadStatus =
   | "extracting"
   | "ready"
   | "failed";
+
+/** Granular phase used by the agent chip during processing. */
+export type ProcessingPhase =
+  | "pending"
+  | "reading"
+  | "classifying"
+  | "matching"
+  | "ready"
+  | "failed"
+  | "duplicate";
 
 export interface StepperUploadedDocument {
   id: string;
@@ -169,6 +222,10 @@ export interface StepperUploadedDocument {
   matchedRequirementKeys: string[];
   extractedFields: Record<string, string>;
   classificationConfidence?: "low" | "medium" | "high";
+  sha256?: string;
+  processingPhase: ProcessingPhase;
+  /** Short snippet pulled from the extracted markdown — drives the inline thumbnail card. */
+  thumbnailExcerpt?: string;
 }
 
 export interface RelatedParty {
@@ -229,7 +286,32 @@ export interface Declarations {
   pepFamily?: boolean;
   pepAssociate?: boolean;
   pepDetail?: string;
+  /** FATCA / CRS classification for entity investors. */
+  fatcaSection?: string;
+  /** Entity tax identification number used with the FATCA classification. */
+  fatcaTin?: string;
   attestationsAccepted?: boolean;
+}
+
+/** Human-readable FATCA / CRS sections used by the entity classification picker. */
+export const FATCA_SECTIONS = [
+  "Section 1 — Financial Institution",
+  "Section 2 — Passive NFFE",
+  "Section 3 — Active NFFE",
+  "Section 4 — Direct reporting NFFE",
+] as const;
+
+export type FatcaSection = (typeof FATCA_SECTIONS)[number];
+
+/** Map the classifier's enum back to a UI section label. */
+export function fatcaSectionFromClassification(c: string | undefined): FatcaSection | undefined {
+  switch (c) {
+    case "financial_institution": return "Section 1 — Financial Institution";
+    case "passive_nffe": return "Section 2 — Passive NFFE";
+    case "active_nffe": return "Section 3 — Active NFFE";
+    case "direct_reporting_nffe": return "Section 4 — Direct reporting NFFE";
+    default: return undefined;
+  }
 }
 
 export interface ProfileData {
@@ -265,6 +347,17 @@ export interface StepperCase {
   lastSavedAt: string;
   createdAt: string;
   audit: StepperAuditEvent[];
+  /** Cross-document consistency flags surfaced to the investor on the Documents step. */
+  crossDocFlags: CrossDocFlag[];
+  /** Most recent investor-visible message from the agent (drives the agent chip). */
+  agentStatus?: string;
+  /**
+   * Set ONLY when `sanitiseLegalForm` had to remap a legacy stored form
+   * (e.g. "LLC" → "Corporation or Private Trust Corporation") on the way
+   * out of the database. Carries the original string so the compliance
+   * cockpit can flag the substitution to the reviewer. Not persisted.
+   */
+  legacyLegalForm?: string;
 }
 
 export function emptyStepState(key: StepKey, status: StepStatus = "locked"): StepState {
@@ -296,6 +389,7 @@ export function buildEmptyStepperCase(caseId: string): StepperCase {
     audit: [
       { id: `au_${Math.random().toString(36).slice(2, 10)}`, at: t, actor: "System", type: "Case created", detail: "Stepper case opened" },
     ],
+    crossDocFlags: [],
   };
 }
 

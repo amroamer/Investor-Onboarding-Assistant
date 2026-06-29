@@ -18,10 +18,9 @@ test("RFI loop: compliance drafts, sends, investor responds, compliance resolves
   await page.waitForTimeout(1500);
   await page.reload();
 
-  // Compliance side: draft an RFI + send it
-  await page.goto("/compliance");
-  // Both seeded cases will have empty RFI lists; pick new-corporate
-  await page.locator("select").first().selectOption("new-corporate");
+  // Compliance side: draft an RFI + send it. Legacy chat-flow case lives
+  // behind ?legacy= now that the default `/compliance` is the queue.
+  await page.goto("/compliance?legacy=new-corporate");
   await page.getByRole("button", { name: /further information/i }).click();
 
   // Add a draft
@@ -73,8 +72,7 @@ test("RFI loop: compliance drafts, sends, investor responds, compliance resolves
   );
 
   // Compliance side: see the response in the Responded section, mark resolved
-  await page.goto("/compliance");
-  await page.locator("select").first().selectOption("new-corporate");
+  await page.goto("/compliance?legacy=new-corporate");
   await page.getByRole("button", { name: /further information/i }).click();
 
   const respondedRow = page.locator('[data-testid="rfi-responded"]');

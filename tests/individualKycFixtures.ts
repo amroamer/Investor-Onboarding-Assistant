@@ -79,12 +79,12 @@ export async function makeIndividualPoaPdf(): Promise<Buffer> {
   title(ctx, "Illustrative Residential Utility Statement");
   subtitle(ctx, "Account holder: Amelia Rose Brooks");
   gap(ctx, 4);
-  row(ctx, "Document reference", "IND-POA-001");
+  row(ctx, "Document reference", "IND-POA-002");
   row(ctx, "Service provider", "Harbour District Utilities - fictional");
   row(ctx, "Account number", "HDU-440192");
-  row(ctx, "Statement date", "15 August 2025");
+  row(ctx, "Statement date", "15 June 2026");
   row(ctx, "Service address", "Apartment 1408, Marina Vista Tower, Dubai Marina, Dubai, UAE");
-  row(ctx, "Billing period", "01 July 2025 - 31 July 2025");
+  row(ctx, "Billing period", "01 May 2026 - 31 May 2026");
   row(ctx, "Amount due", "AED 612.40");
   gap(ctx);
   para(ctx, "Statement summary");

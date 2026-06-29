@@ -38,6 +38,8 @@
   --color-attention-foreground: var(--attention-foreground);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-warn: var(--warn);
+  --color-warn-foreground: var(--warn-foreground);
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
 }
 
@@ -46,49 +48,51 @@
 
   /* MGX surfaces */
   --background: #ffffff;
-  --foreground: #00004b;
+  --foreground: #050044;
 
   --surface: #ffffff;
-  --surface-muted: #ededf2;
+  --surface-muted: #f6f8fc;
 
   --card: #ffffff;
-  --card-foreground: #00004b;
+  --card-foreground: #050044;
 
   --popover: #ffffff;
-  --popover-foreground: #00004b;
+  --popover-foreground: #050044;
 
   /* MGX deep navy — dominant brand color */
-  --primary: #00004b;
+  --primary: #050044;
   --primary-foreground: #ffffff;
 
   --secondary: #ededf2;
-  --secondary-foreground: #00004b;
+  --secondary-foreground: #050044;
 
-  --muted: #ededf2;
-  --muted-foreground: #4e6079;
+  --muted: #f6f8fc;
+  --muted-foreground: #65708e;
 
-  /* MGX teal — CTAs, positive signals */
-  --accent: #009dab;
+  /* MGX teal — CTAs, positive signals, intelligence accents */
+  --accent: #0b8fa0;
   --accent-foreground: #ffffff;
 
-  --destructive: #d91010;
+  --destructive: #b42318;
   --destructive-foreground: #ffffff;
 
-  --border: #dddde3;
-  --input: #dddde3;
+  --border: #dfe4ee;
+  --input: #cfd7e6;
   /* MGX cyan glow — reserved for focus rings only */
   --ring: #60f0ff;
 
   /* Chat surfaces (existing semantics: investor = user-side bubble, agent = AI-side surface) */
   --agent: #ffffff;
-  --agent-foreground: #00004b;
-  --investor: #00004b;
+  --agent-foreground: #050044;
+  --investor: #050044;
   --investor-foreground: #ffffff;
 
   /* Status semantics */
-  --attention: #ac42ff;
+  --attention: #ac42ff;            /* purple — reserved for PEP / regulator flags */
   --attention-foreground: #ffffff;
-  --success: #009dab;
+  --warn: #d97706;                 /* amber — medium confidence, "needs your eye" */
+  --warn-foreground: #ffffff;
+  --success: #099268;              /* green — verified/complete */
   --success-foreground: #ffffff;
 }
 
@@ -112,3 +116,134 @@
   border-radius: 8px;
 }
 .scroll-elegant::-webkit-scrollbar-track { background: transparent; }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Stepper animations — applied to step pages, rail items, panel rows, hero.
+   All disabled together under prefers-reduced-motion.
+   ──────────────────────────────────────────────────────────────────────── */
+
+@keyframes step-page-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.step-page-in {
+  animation: step-page-in 0.35s ease both;
+}
+
+@keyframes step-item-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.step-item-in {
+  opacity: 0;
+  animation: step-item-in 0.35s ease forwards;
+}
+
+/* AI orb — teal radial gradient with pulsing box-shadow ring. */
+@keyframes orb-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(11, 143, 160, 0.35); }
+  70%  { box-shadow: 0 0 0 16px rgba(11, 143, 160, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(11, 143, 160, 0); }
+}
+.orb-pulse {
+  animation: orb-pulse 1.6s infinite;
+}
+
+/* Live activity dot — pulses while a step is running. */
+@keyframes dot-pulse {
+  50% { transform: scale(1.7); opacity: 0.45; }
+}
+.dot-pulse {
+  animation: dot-pulse 1s infinite;
+}
+
+/* Submitted page — big circle scale-in. */
+@keyframes success-pop {
+  0%   { transform: scale(0.55); opacity: 0.2; }
+  70%  { transform: scale(1.08); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.success-pop {
+  animation: success-pop 0.5s ease both;
+}
+
+/* Decorative dotted pattern for the agent panel corner. Pure CSS, no images. */
+.agent-dot-corner::after {
+  content: "";
+  position: absolute;
+  right: -30px;
+  top: -30px;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, rgba(11, 143, 160, 0.18) 0 2px, transparent 2px 12px);
+  background-size: 14px 14px;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Compliance cockpit — extends the stepper visual language for the internal
+   review surface. Same tokens, same motion vocabulary, slightly denser.
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Slide-in from the right edge — used by the evidence drawer. */
+@keyframes drawer-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+.drawer-in {
+  animation: drawer-in 0.28s ease both;
+}
+
+/* Soft tab-content swap — used when switching between Overview/Flags/etc. */
+@keyframes tab-swap-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.tab-swap-in {
+  animation: tab-swap-in 0.25s ease both;
+}
+
+/* Risk-score halo — radial pulse around the recommendation card. */
+@keyframes score-halo {
+  0%   { box-shadow: 0 0 0 0 rgba(11, 143, 160, 0.18); }
+  70%  { box-shadow: 0 0 0 14px rgba(11, 143, 160, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(11, 143, 160, 0); }
+}
+.score-halo {
+  animation: score-halo 2.4s ease-in-out infinite;
+}
+
+/* Sweep used by the screening pipeline progress bar. */
+@keyframes pipeline-sweep {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+.pipeline-sweep {
+  background: linear-gradient(
+    90deg,
+    rgba(11, 143, 160, 0.06) 0%,
+    rgba(11, 143, 160, 0.35) 35%,
+    rgba(11, 143, 160, 0.06) 70%
+  );
+  background-size: 200% 100%;
+  animation: pipeline-sweep 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step-page-in,
+  .step-item-in,
+  .orb-pulse,
+  .dot-pulse,
+  .success-pop,
+  .drawer-in,
+  .tab-swap-in,
+  .score-halo,
+  .pipeline-sweep {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    background: inherit !important;
+  }
+}

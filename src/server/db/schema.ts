@@ -65,6 +65,7 @@ export const stepperCases = pgTable("stepper_cases", {
   jurisdiction: text("jurisdiction").notNull().default(""),
   currentStep: text("current_step").notNull().default("profile"),
   data: jsonb("data").notNull(),
+  resumeToken: text("resume_token").unique(),
   submittedAt: timestamp("submitted_at", { withTimezone: true, mode: "string" }),
   lastSavedAt: timestamp("last_saved_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
@@ -86,6 +87,9 @@ export const stepperUploads = pgTable("stepper_uploads", {
   extractedFields: jsonb("extracted_fields"),
   matchedRequirementKeys: text("matched_requirement_keys").array().notNull().default([]),
   classificationConfidence: text("classification_confidence"),
+  sha256: text("sha256"),
+  processingPhase: text("processing_phase").notNull().default("pending"),
+  thumbnailExcerpt: text("thumbnail_excerpt"),
 });
 
 export const stepperAudit = pgTable("stepper_audit", {
@@ -97,6 +101,28 @@ export const stepperAudit = pgTable("stepper_audit", {
   detail: text("detail").notNull(),
 });
 
+/**
+ * Compliance-side snapshot derived from a submitted stepper case. One row per
+ * case, keyed by `stepperCases.id`. Created when `submitCase` runs; mutated
+ * when screening / RFI activity changes.
+ */
+export const stepperComplianceState = pgTable("stepper_compliance_state", {
+  caseId: text("case_id")
+    .primaryKey()
+    .references(() => stepperCases.id, { onDelete: "cascade" }),
+  suggestedOutcome: text("suggested_outcome").notNull().default("PENDING"),
+  riskScore: integer("risk_score").notNull().default(0),
+  riskBand: text("risk_band").notNull().default("Low"),
+  redFlags: jsonb("red_flags").notNull().default([]),
+  namesToScreen: jsonb("names_to_screen").notNull().default([]),
+  furtherInfoRequests: jsonb("further_info_requests").notNull().default([]),
+  reasoning: jsonb("reasoning").notNull().default([]),
+  computedAt: timestamp("computed_at", { withTimezone: true, mode: "string" })
+    .notNull()
+    .defaultNow(),
+});
+
 export type StepperCaseRow = typeof stepperCases.$inferSelect;
 export type StepperUploadRow = typeof stepperUploads.$inferSelect;
 export type StepperAuditRow = typeof stepperAudit.$inferSelect;
+export type StepperComplianceStateRow = typeof stepperComplianceState.$inferSelect;

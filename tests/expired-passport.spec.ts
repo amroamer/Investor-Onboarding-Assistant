@@ -87,10 +87,9 @@ test("expired passport produces a High-severity PASSPORT-EXPIRED red flag", asyn
   await page.getByRole("button", { name: /^close$/i }).click();
 
   // Hop over to the Compliance workspace to confirm the red flag was emitted.
-  // The case selector persists `activeKey` in localStorage, so the LP case is already
-  // selected from the onboarding session — but pin it explicitly to be safe.
-  await page.goto("/compliance");
-  await page.locator("select").first().selectOption("returning-lp");
+  // The default landing is now the case queue; the legacy chat-flow demo cases
+  // live behind the `?legacy=` query param.
+  await page.goto("/compliance?legacy=returning-lp");
   await page.getByRole("button", { name: /red flags/i }).click();
 
   // The flags table should contain PASSPORT-EXPIRED with High severity

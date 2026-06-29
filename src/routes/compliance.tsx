@@ -1,7 +1,19 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+/**
+ * Compliance workspace — review queue index.
+ *
+ * Default view is a queue of every submitted stepper case. Click a card →
+ * `/compliance/case/$caseId` for the cockpit drill-in (separate route file).
+ *
+ * The legacy chat-flow demo cases (HRZN, ATLS) live behind `?legacy=key` so
+ * the existing playwright specs (expired-passport.spec.ts, rfi-loop.spec.ts)
+ * can still reach them. The queue surfaces a small "Open legacy demo" link
+ * for manual access during the demo.
+ */
+import { createFileRoute, Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCaseStore, type CaseKey } from "@/lib/onboarding/store";
 import { investorDisplayName } from "@/lib/onboarding/engine";
+import { CaseQueueView } from "@/components/compliance/queue/CaseQueueView";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
@@ -15,6 +27,7 @@ import {
   Send,
   CheckCircle2,
   MessageSquare,
+  History,
 } from "lucide-react";
 import { MgxLogo } from "@/components/Brand";
 import { useState, Fragment } from "react";
@@ -23,7 +36,19 @@ import { addRfiDraft, sendRfis, markRfiResolved } from "@/server/rfi";
 import { runScreening, syncScreeningList } from "@/server/screening";
 import type { OnboardingCase, ScreeningMatch, NameToScreen } from "@/lib/onboarding/types";
 
+interface ComplianceSearch {
+  /** When set, render the legacy chat-flow view for the named case key. */
+  legacy?: CaseKey;
+}
+
 export const Route = createFileRoute("/compliance")({
+  validateSearch: (s: Record<string, unknown>): ComplianceSearch => {
+    const legacy = s.legacy;
+    if (legacy === "new-corporate" || legacy === "returning-lp") {
+      return { legacy };
+    }
+    return {};
+  },
   head: () => ({
     meta: [
       { title: "Compliance workspace — MGX (demo)" },
@@ -38,17 +63,11 @@ export const Route = createFileRoute("/compliance")({
 });
 
 function ComplianceWorkspace() {
-  const { cases, activeKey, setActiveKey } = useCaseStore();
-  const caseData = cases[activeKey];
-  const [tab, setTab] = useState<"overview" | "flags" | "names" | "rfi" | "audit">("overview");
-  const co = caseData.complianceOnly;
+  const search = useSearch({ from: "/compliance" });
+  const { cases: legacyCases } = useCaseStore();
+  const [includeInProgress, setIncludeInProgress] = useState(false);
 
-  const outcomeColor =
-    co.suggestedOutcome === "PASS"
-      ? "bg-accent text-accent-foreground"
-      : co.suggestedOutcome === "FAIL"
-        ? "bg-destructive text-destructive-foreground"
-        : "bg-[color:var(--attention)] text-[color:var(--attention-foreground)]";
+  const isLegacy = !!search.legacy;
 
   return (
     <div className="min-h-screen bg-background">
@@ -65,106 +84,234 @@ function ComplianceWorkspace() {
           <div>
             <div className="text-sm font-semibold tracking-tight">Compliance workspace</div>
             <div className="text-[11px] text-primary-foreground/70">
-              Demo · internal view · not accessible from investor portal
+              {isLegacy
+                ? "Legacy demo · chat-flow case"
+                : "Demo · internal view · not accessible from investor portal"}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            value={activeKey}
-            onChange={(e) => setActiveKey(e.target.value as CaseKey)}
-            className="rounded-md border border-primary-foreground/20 bg-primary px-2 py-1 text-xs text-primary-foreground"
-          >
-            <option value="new-corporate">{investorDisplayName(cases["new-corporate"])}</option>
-            <option value="returning-lp">{investorDisplayName(cases["returning-lp"])}</option>
-          </select>
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
-          >
-            <Link to="/">
-              <ArrowLeft className="size-3.5" /> Back
-            </Link>
-          </Button>
+          {isLegacy && (
+            <>
+              {/* Preserve the original picker so the existing playwright specs
+                  (expired-passport, rfi-loop) keep working. The select is only
+                  rendered in the legacy view branch. */}
+              <LegacySelect />
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
+              >
+                <Link to="/compliance">
+                  <ArrowLeft className="size-3.5" /> Queue
+                </Link>
+              </Button>
+            </>
+          )}
+          {!isLegacy && (
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
+            >
+              <Link to="/">
+                <ArrowLeft className="size-3.5" /> Home
+              </Link>
+            </Button>
+          )}
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl px-6 py-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Case
+      <div
+        className={cn(
+          "mx-auto px-4 sm:px-6 py-6 pb-24",
+          isLegacy ? "max-w-6xl" : "max-w-[1320px]",
+        )}
+      >
+        {isLegacy ? (
+          <>
+            <LegacyComplianceView caseData={legacyCases[search.legacy!]} />
+            <div className="mt-10 text-center text-[11px] text-muted-foreground">
+              Looking for live stepper cases?{" "}
+              <Link to="/compliance" className="font-semibold text-accent hover:underline">
+                Return to the queue →
+              </Link>
             </div>
-            <h1 className="text-2xl font-medium text-foreground">
-              {investorDisplayName(caseData)}
-            </h1>
-            <div className="mt-0.5 text-sm text-muted-foreground">
-              {caseData.legalForm} · {caseData.jurisdiction} · {caseData.caseId}
-            </div>
-          </div>
-          <div className="rounded-lg border bg-surface p-4 min-w-[260px]">
-            <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              AI-generated recommendation
-            </div>
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <span className={cn("rounded-md px-2.5 py-1 text-xs font-semibold", outcomeColor)}>
-                Suggested{" "}
-                {co.suggestedOutcome === "PENDING"
-                  ? "PENDING — further information"
-                  : co.suggestedOutcome}
-              </span>
-              <div className="text-right">
-                <div className="text-2xl font-semibold tabular-nums text-primary">
-                  {co.riskScore}
-                </div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Internal risk score · {co.riskBand}
-                </div>
-              </div>
-            </div>
-            <p className="mt-3 text-[11px] leading-snug text-muted-foreground">
-              AI-generated recommendation for compliance review. Final determination must be made by
-              an authorised compliance officer.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-6 flex gap-1 border-b">
-          {(
-            [
-              ["overview", "Overview", <FileText className="size-3.5" />],
-              ["flags", "Red flags", <AlertTriangle className="size-3.5" />],
-              ["names", "Screening", <Users className="size-3.5" />],
-              ["rfi", "Further information", <ListChecks className="size-3.5" />],
-              ["audit", "Audit trail", <ScrollText className="size-3.5" />],
-            ] as const
-          ).map(([k, label, icon]) => (
-            <button
-              key={k}
-              onClick={() => setTab(k)}
-              className={cn(
-                "flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm",
-                tab === k
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {icon} {label}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-6">
-          {tab === "overview" && <OverviewTab caseData={caseData} />}
-          {tab === "flags" && <FlagsTab caseData={caseData} />}
-          {tab === "names" && <NamesTab caseData={caseData} />}
-          {tab === "rfi" && <RfiTab caseData={caseData} />}
-          {tab === "audit" && <AuditTab caseData={caseData} />}
-        </div>
+          </>
+        ) : (
+          <>
+            <CaseQueueView
+              includeInProgress={includeInProgress}
+              setIncludeInProgress={setIncludeInProgress}
+            />
+            <LegacyFooterLink />
+          </>
+        )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Small footer card that lets reviewers jump into the legacy chat-flow demo
+ * cases. Kept low-key so it doesn't compete with the live queue, but visible
+ * enough to be discoverable.
+ */
+function LegacyFooterLink() {
+  const { cases: legacyCases } = useCaseStore();
+  return (
+    <section
+      data-testid="legacy-footer-link"
+      className="mt-8 rounded-2xl border border-dashed bg-surface-muted/40 p-5"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="grid size-8 place-items-center rounded-full bg-secondary text-muted-foreground">
+            <History className="size-4" />
+          </span>
+          <div>
+            <div className="text-[12.5px] font-semibold text-foreground">
+              Legacy chat-flow demo cases
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              The original conversational onboarding prototype. Kept for back-compat with
+              regression tests.
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button asChild size="sm" variant="outline">
+            <Link to="/compliance" search={{ legacy: "new-corporate" } as ComplianceSearch}>
+              {investorDisplayName(legacyCases["new-corporate"])}
+            </Link>
+          </Button>
+          <Button asChild size="sm" variant="outline">
+            <Link to="/compliance" search={{ legacy: "returning-lp" } as ComplianceSearch}>
+              {investorDisplayName(legacyCases["returning-lp"])}
+            </Link>
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Header-rendered select used in the legacy view. Switching the option
+ * navigates to the corresponding legacy case via the query string so the URL
+ * stays bookmarkable.
+ */
+function LegacySelect() {
+  const navigate = useNavigate();
+  const { cases: legacyCases } = useCaseStore();
+  const search = useSearch({ from: "/compliance" });
+  const active = search.legacy ?? "new-corporate";
+  return (
+    <select
+      value={active}
+      onChange={(e) =>
+        navigate({
+          to: "/compliance",
+          search: { legacy: e.target.value as CaseKey } as ComplianceSearch,
+        })
+      }
+      className="rounded-md border border-primary-foreground/20 bg-primary px-2 py-1 text-xs text-primary-foreground"
+      data-testid="legacy-case-select"
+      aria-label="Legacy demo case"
+    >
+      <option value="new-corporate">{investorDisplayName(legacyCases["new-corporate"])}</option>
+      <option value="returning-lp">{investorDisplayName(legacyCases["returning-lp"])}</option>
+    </select>
+  );
+}
+
+function LegacyComplianceView({ caseData }: { caseData: OnboardingCase }) {
+  const [tab, setTab] = useState<"overview" | "flags" | "names" | "rfi" | "audit">("overview");
+  const co = caseData.complianceOnly;
+
+  const outcomeColor =
+    co.suggestedOutcome === "PASS"
+      ? "bg-accent text-accent-foreground"
+      : co.suggestedOutcome === "FAIL"
+        ? "bg-destructive text-destructive-foreground"
+        : "bg-[color:var(--attention)] text-[color:var(--attention-foreground)]";
+
+  return (
+    <>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Case
+          </div>
+          <h1 className="text-2xl font-medium text-foreground">
+            {investorDisplayName(caseData)}
+          </h1>
+          <div className="mt-0.5 text-sm text-muted-foreground">
+            {caseData.legalForm} · {caseData.jurisdiction} · {caseData.caseId}
+          </div>
+        </div>
+        <div className="rounded-lg border bg-surface p-4 min-w-[260px]">
+          <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            AI-generated recommendation
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span className={cn("rounded-md px-2.5 py-1 text-xs font-semibold", outcomeColor)}>
+              Suggested{" "}
+              {co.suggestedOutcome === "PENDING"
+                ? "PENDING — further information"
+                : co.suggestedOutcome}
+            </span>
+            <div className="text-right">
+              <div className="text-2xl font-semibold tabular-nums text-primary">
+                {co.riskScore}
+              </div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Internal risk score · {co.riskBand}
+              </div>
+            </div>
+          </div>
+          <p className="mt-3 text-[11px] leading-snug text-muted-foreground">
+            AI-generated recommendation for compliance review. Final determination must be made by
+            an authorised compliance officer.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-6 flex gap-1 border-b">
+        {(
+          [
+            ["overview", "Overview", <FileText className="size-3.5" />],
+            ["flags", "Red flags", <AlertTriangle className="size-3.5" />],
+            ["names", "Screening", <Users className="size-3.5" />],
+            ["rfi", "Further information", <ListChecks className="size-3.5" />],
+            ["audit", "Audit trail", <ScrollText className="size-3.5" />],
+          ] as const
+        ).map(([k, label, icon]) => (
+          <button
+            key={k}
+            onClick={() => setTab(k)}
+            className={cn(
+              "flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm",
+              tab === k
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {icon} {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-6">
+        {tab === "overview" && <OverviewTab caseData={caseData} />}
+        {tab === "flags" && <FlagsTab caseData={caseData} />}
+        {tab === "names" && <NamesTab caseData={caseData} />}
+        {tab === "rfi" && <RfiTab caseData={caseData} />}
+        {tab === "audit" && <AuditTab caseData={caseData} />}
+      </div>
+    </>
   );
 }
 

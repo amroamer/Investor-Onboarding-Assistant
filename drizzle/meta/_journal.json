@@ -29,6 +29,20 @@
       "when": 1782660478776,
       "tag": "0003_stepper_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782664575320,
+      "tag": "0004_documents_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782700000000,
+      "tag": "0005_stepper_compliance_state",
+      "breakpoints": true
     }
   ]
 }

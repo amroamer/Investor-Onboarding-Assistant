@@ -9,6 +9,10 @@
  *   - Ownership / SoW-SoF / Declarations / Review / Submit are saved
  *     through the v2 server functions
  *
+ * Asserts the agentic prefill behaviour: after the 6 PDFs are processed,
+ * Ownership / SoW-SoF / Declarations should already contain the relevant
+ * extracted values — the test does NOT manually type those fields.
+ *
  * Requires:
  *   - ANTHROPIC_API_KEY on the dev server
  *   - DATABASE_URL pointing at the same Postgres the dev server uses
@@ -21,7 +25,7 @@ import { INDIVIDUAL_KYC_BUILDERS } from "./individualKycFixtures";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-test("Stepper · Individual flow: enter, upload 6 demo PDFs, complete all steps, submit", async ({ page }) => {
+test("Stepper · Individual flow: agent extracts and prefills steps 3/4/5 from 6 demo PDFs, user confirms and submits", async ({ page }) => {
   test.setTimeout(900_000); // 15 min — 6 PDFs through the full Claude pipeline
 
   page.on("console", (msg) => console.log(`[browser:${msg.type()}]`, msg.text()));
@@ -51,92 +55,119 @@ test("Stepper · Individual flow: enter, upload 6 demo PDFs, complete all steps,
   // ── Step 1: Profile ────────────────────────────────────────────────────
   await expect(page.getByRole("heading", { name: "Investor profile" })).toBeVisible({ timeout: 30_000 });
   await page.locator('[data-testid="profile-investorName"]').fill("Amelia Rose Brooks");
-  await page.locator('[data-testid="profile-jurisdiction"]').fill("United Arab Emirates");
-  await page.locator('[data-testid="profile-primaryContact"]').fill("Amelia Rose Brooks");
   await page.locator('[data-testid="profile-primaryContactEmail"]').fill("amelia@example.com");
+  // Step 1 is now a flat 5-card list — clicking the Individual card selects it.
   await page.locator('[data-testid="legal-form-individual"]').click();
-  await expect(page.locator('[data-testid="legal-form-individual"]')).toHaveAttribute("data-active", "true");
+  await expect(page.locator('[data-testid="legal-form-individual"]')).toHaveAttribute(
+    "data-active",
+    "true",
+  );
   await page.locator('[data-testid="profile-next"]').click();
 
-  // ── Step 2: Documents ──────────────────────────────────────────────────
+  // ── Step 2: Documents (slot-based with agent chip) ─────────────────────
   await expect(page.getByRole("heading", { name: "Documents" })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('[data-testid="documents-counter"]')).toHaveText("0 / 6");
+  await expect(page.locator('[data-testid="documents-agent-chip"]')).toBeVisible();
 
-  await page.locator('[data-testid="documents-file-input"]').setInputFiles(fixturePaths);
-  for (const fp of fixturePaths) {
-    await expect(page.getByText(path.basename(fp)).first()).toBeVisible();
+  // Drop all six demo PDFs into the bulk strip — the auto-classifier slots each.
+  await page.locator('[data-testid="documents-bulk-input"]').setInputFiles(fixturePaths);
+
+  const slotKeys = [
+    "photo_id",
+    "proof_of_address",
+    "tax_residency",
+    "source_of_wealth",
+    "source_of_funds",
+    "pep_declaration",
+  ];
+  for (const k of slotKeys) {
+    await expect(page.locator(`[data-testid="slot-${k}"]`)).toBeVisible();
   }
-  await page.locator('[data-testid="documents-submit-upload"]').click();
-
-  // Wait until all 6 uploads land in the uploaded-files list with status "ready" or "failed"
-  const uploadedRows = page.locator('[data-testid^="uploaded-file-"]');
-  await expect(uploadedRows).toHaveCount(6, { timeout: 600_000 });
-
-  // None should still be "extracting"
-  const pills = page.locator('[data-testid^="uploaded-file-"] span', { hasText: /^(uploading|extracting|ready|failed)$/i });
-  // Wait until none read "extracting"
   await page.waitForFunction(
-    () => {
-      const nodes = document.querySelectorAll('[data-testid^="uploaded-file-"] span');
-      const texts = Array.from(nodes).map((n) => n.textContent?.trim().toLowerCase() ?? "");
-      return texts.every((t) => t !== "extracting" && t !== "uploading");
+    (keys) => {
+      for (const k of keys) {
+        const el = document.querySelector(`[data-testid="slot-${k}"]`);
+        const status = el?.getAttribute("data-status");
+        if (!status || status === "required" || status === "in_flight") return false;
+      }
+      return true;
     },
-    null,
+    slotKeys,
     { timeout: 600_000 },
   );
 
-  // Print the classification labels for debugging
-  const classifications = page.locator('[data-testid="uploaded-classification"]');
-  const labels: string[] = [];
-  const cnt = await classifications.count();
-  for (let i = 0; i < cnt; i++) labels.push(((await classifications.nth(i).textContent()) ?? "").trim());
-  test.info().annotations.push({ type: "classifications", description: JSON.stringify(labels) });
-
-  // Counter should reach 6/6
   await expect(page.locator('[data-testid="documents-counter"]')).toHaveText("6 / 6", { timeout: 60_000 });
-
-  // Continue
   await page.locator('[data-testid="documents-next"]').click();
 
-  // ── Step 3: Ownership ─────────────────────────────────────────────────
-  await expect(page.getByRole("heading", { name: /Ownership/i })).toBeVisible({ timeout: 30_000 });
-  // For Individual, row 0 is pre-seeded with the investor — just continue.
+  // ── Step 3: Ownership — prefilled from passport ───────────────────────
+  await expect(page.getByRole("heading", { name: "Ownership and related parties" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-testid="agent-prefill-banner"]')).toBeVisible();
+  await expect(page.locator('[data-testid="agent-prefill-banner"]')).toHaveAttribute("data-empty", "false");
+  // The prefill chip shows the source filename — visible in display mode.
+  await expect(page.locator('[data-testid="ownership-name-0-chip-source"]')).toBeVisible();
+  // Click Edit on Party 1 so the inputs mount, then verify prefilled values.
+  await page.locator('[data-testid="ownership-row-0"] >> text=Edit').click();
   await expect(page.locator('[data-testid="ownership-name-0"]')).toHaveValue("Amelia Rose Brooks");
+  await expect(page.locator('[data-testid="ownership-nationality-0"]')).toHaveValue("British");
   await page.locator('[data-testid="ownership-next"]').click();
 
-  // ── Step 4: Source of Wealth & Source of Funds ────────────────────────
+  // ── Step 4: SoW & SoF — prefilled from SoW PDF + bank statement ───────
   await expect(page.getByRole("heading", { name: "Source of Wealth & Source of Funds" })).toBeVisible({ timeout: 30_000 });
-  await page.locator('[data-testid="sow-category"]').selectOption("Employment income");
-  await page.locator('[data-testid="sow-detail"]').fill(
-    "Senior technology consulting income (2012–2025) and proceeds from sale of a 12% interest in Brightlake Consulting Ltd. in December 2024. Estimated net worth USD 1.5–2.0M.",
-  );
-  await page.locator('[data-testid="sof-category"]').selectOption("Personal bank account");
-  await page.locator('[data-testid="sof-detail"]').fill(
-    "Subscription of USD 250,000 to be remitted from Emirates Crescent Bank account ECB-USD-XXXX4412 (closing balance USD 382,745.18). No third-party funding.",
-  );
+  await expect(page.locator('[data-testid="agent-prefill-banner"]')).toBeVisible();
+  await expect(page.locator('[data-testid="agent-prefill-banner"]')).toHaveAttribute("data-empty", "false");
+
+  // SoW: category should map to "Employment income"; narrative should mention the consulting work.
+  // sow-category and sof-category are Radix Select triggers — assert visible text, not input value.
+  await expect(page.locator('[data-testid="sow-category"]')).toHaveText(/Employment income/);
+  const sowDetail = await page.locator('[data-testid="sow-detail"]').inputValue();
+  expect(sowDetail).toMatch(/consulting|Brightlake|wealth/i);
+
+  // SoF: category and narrative should reference the Emirates Crescent Bank account.
+  await expect(page.locator('[data-testid="sof-category"]')).toHaveText(/Personal bank account/);
+  const sofDetail = await page.locator('[data-testid="sof-detail"]').inputValue();
+  expect(sofDetail).toMatch(/Emirates Crescent Bank/i);
+  expect(sofDetail).toMatch(/250,?000/);
+
   await page.locator('[data-testid="sowsof-next"]').click();
 
-  // ── Step 5: Declarations ──────────────────────────────────────────────
-  await expect(page.getByRole("heading", { name: /Declarations/i })).toBeVisible({ timeout: 30_000 });
-  await page.locator('[data-testid="dec-tax-country"]').fill("United Arab Emirates");
-  await page.locator('[data-testid="dec-tax-additional"]').fill("None");
-  await page.locator('[data-testid="dec-us-person-no"]').click();
-  await page.locator('[data-testid="dec-pep-self-no"]').click();
-  await page.locator('[data-testid="dec-pep-family-no"]').click();
-  await page.locator('[data-testid="dec-pep-associate-no"]').click();
+  // ── Step 5: Declarations — prefilled from tax + PEP docs ──────────────
+  await expect(page.getByRole("heading", { name: "Declarations", exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-testid="agent-prefill-banner"]')).toBeVisible();
+  await expect(page.locator('[data-testid="agent-prefill-banner"]')).toHaveAttribute("data-empty", "false");
+
+  // Tax card renders as a confirmation row; click Edit to expose inputs and verify.
+  await page.locator('[data-testid="dec-card-tax"] >> text=Edit').click();
+  await expect(page.locator('[data-testid="dec-tax-country"]')).toHaveValue("United Arab Emirates");
+  await expect(page.locator('[data-testid="dec-us-person-no"]')).toHaveAttribute("data-active", "true");
+
+  // PEP card — click Edit, then verify all three "No" answers are pre-selected.
+  await page.locator('[data-testid="dec-card-pep"] >> text=Edit').click();
+  await expect(page.locator('[data-testid="dec-pep-self-no"]')).toHaveAttribute("data-active", "true");
+  await expect(page.locator('[data-testid="dec-pep-family-no"]')).toHaveAttribute("data-active", "true");
+  await expect(page.locator('[data-testid="dec-pep-associate-no"]')).toHaveAttribute("data-active", "true");
+
+  // Individual flow — no FATCA classification block.
+  await expect(page.locator('[data-testid="dec-fatca-section"]')).toHaveCount(0);
+  // Attestation is the only thing the investor must tick by hand.
   await page.locator('[data-testid="dec-attestation"]').click();
   await page.locator('[data-testid="declarations-next"]').click();
 
   // ── Step 6: Review ────────────────────────────────────────────────────
   await expect(page.getByRole("heading", { name: /Review and confirm/i })).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-testid="review-agent-summary"]')).toBeVisible();
   await expect(page.locator('[data-testid="review-profile"]')).toContainText("Amelia Rose Brooks");
   await expect(page.locator('[data-testid="review-profile"]')).toContainText("Individual");
-  await expect(page.locator('[data-testid="review-documents"]')).toContainText(/Source of Wealth|Source of Funds|Passport|Proof of address|PEP|Tax residency/);
+  // Documents row is a compact summary — verify the count + completion text.
+  await expect(page.locator('[data-testid="review-documents"]')).toContainText(/6 of 6 documents received/);
+  await expect(page.locator('[data-testid="review-documents"]')).toContainText(/All required documents uploaded/);
+  // Expand the Declarations row to reveal the source-of-truth chips, then assert at least one is visible.
+  await page.locator('[data-testid="review-declarations"] >> [aria-label="Expand"]').click();
+  await expect(page.locator('[data-testid="review-source-tag"]').first()).toBeVisible();
   await page.locator('[data-testid="review-confirm"]').click();
   await page.locator('[data-testid="review-submit"]').click();
 
   // ── Step 7: Submitted ─────────────────────────────────────────────────
-  await expect(page.getByRole("heading", { name: /Submitted/i })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "Submitted", exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('[data-testid="submitted-receipt"]')).toContainText(/Case submitted/i);
   await expect(page.locator('[data-testid="submitted-receipt"]')).toContainText(/STP-/);
 });

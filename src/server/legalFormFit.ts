@@ -61,6 +61,18 @@ export const FORM_FIT: Record<DocumentType, LegalForm[]> = {
   articles_of_association: ["Corporation", "Limited Partnership"],
   register_of_directors: ["Corporation", "Limited Partnership"],
   register_of_members: ["Corporation", "Limited Partnership", "Trust"],
+  // New doc types introduced by the 5-form taxonomy.
+  evidence_of_regulated_status: ["Regulated or Listed Entity"],
+  audited_financial_statements: ["Regulated or Listed Entity", "Corporation"],
+  authorised_signatory_list: [
+    "Limited Partnership",
+    "Corporation",
+    "Trust",
+    "Regulated or Listed Entity",
+  ],
+  trust_deed: ["Trust"],
+  schedule_of_trust_parties: ["Trust"],
+  authority_to_act: ["Limited Partnership", "Trust"],
   // "other" is handled as unmatched_unknown_type — never wrong-form.
   other: [
     "Individual",

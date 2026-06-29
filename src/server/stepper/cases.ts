@@ -7,6 +7,7 @@ import type { StepperCaseRow, StepperAuditRow } from "../db/schema";
 import {
   buildEmptyStepperCase,
   computeProgressPct,
+  sanitiseLegalForm,
   type StepperCase,
   type StepperAuditEvent,
   type StepKey,
@@ -23,8 +24,33 @@ const id = (prefix: string) => `${prefix}_${randomUUID().slice(0, 8)}`;
 
 function rowToCase(row: StepperCaseRow, audit: StepperAuditRow[]): StepperCase {
   const data = row.data as Omit<StepperCase, "caseId" | "lastSavedAt" | "submittedAt" | "createdAt" | "audit">;
+  // Legacy cases may have legalForm strings like "LLC" or "Foundation" that no
+  // longer exist in the 5-form taxonomy — sanitise on read so the rest of the
+  // app sees a valid value. `sanitiseLegalForm` always returns a valid
+  // `StepperLegalForm` when input is non-empty, defaulting unknown strings to
+  // "Regulated or Listed Entity"; the fallback to the raw string only matters
+  // when input is empty (in which case we leave the profile untouched).
+  const rawLegalForm = data.profile?.legalForm as string | undefined;
+  const sanitisedForm: StepperLegalForm | undefined = rawLegalForm
+    ? sanitiseLegalForm(rawLegalForm)
+    : undefined;
+  const sanitisedProfile =
+    data.profile && sanitisedForm
+      ? { ...data.profile, legalForm: sanitisedForm }
+      : data.profile;
+  // Track when the persisted form actually had to be remapped — drives the
+  // legacy-form chip on the compliance hero. Two sources of mismatch matter:
+  //   1. the stored form was a deprecated value (e.g. "LLC")
+  //   2. the stored form was unknown to the validator and got coerced
+  const legacyLegalForm =
+    rawLegalForm && sanitisedForm && rawLegalForm !== sanitisedForm
+      ? rawLegalForm
+      : undefined;
   return {
     ...data,
+    profile: sanitisedProfile,
+    // Backfill fields added after early cases were persisted.
+    crossDocFlags: (data as { crossDocFlags?: StepperCase["crossDocFlags"] }).crossDocFlags ?? [],
     caseId: row.id,
     submittedAt: row.submittedAt ?? undefined,
     lastSavedAt: row.lastSavedAt,
@@ -36,6 +62,7 @@ function rowToCase(row: StepperCaseRow, audit: StepperAuditRow[]): StepperCase {
       type: a.type,
       detail: a.detail,
     })),
+    legacyLegalForm,
   };
 }
 
@@ -54,6 +81,9 @@ function caseToRow(c: StepperCase): {
       jurisdiction: rest.profile?.jurisdiction ?? "",
       currentStep: rest.currentStep,
       data: rest,
+      // resumeToken is managed by the dedicated requestResumeLink server fn,
+      // not by the persistence layer — preserve whatever the DB already has.
+      resumeToken: null,
       submittedAt: submittedAt ?? null,
       lastSavedAt,
     },
@@ -130,6 +160,40 @@ export const getStepperCase = createServerFn({ method: "GET" })
     return await loadCase(data.caseId);
   });
 
+/**
+ * Generate (or return) a short-lived resume token for the case and the URL the
+ * investor can use to come back later. The email is logged on the server in
+ * dev — production hosts wire `RESUME_EMAIL_PROVIDER` to deliver it.
+ */
+export const requestResumeLink = createServerFn({ method: "POST" })
+  .validator((d: { caseId: string; email: string }) => d)
+  .handler(async ({ data }): Promise<{ url: string; email: string }> => {
+    if (!data.email.trim() || !/^\S+@\S+\.\S+$/.test(data.email)) {
+      throw new Error("A valid email is required to send the resume link");
+    }
+    const rows = await db.select().from(stepperCases).where(eq(stepperCases.id, data.caseId));
+    if (rows.length === 0) throw new Error(`Stepper case ${data.caseId} not found`);
+    let token = rows[0].resumeToken;
+    if (!token) {
+      token = `rt_${randomUUID().replace(/-/g, "")}`;
+      await db.update(stepperCases).set({ resumeToken: token }).where(eq(stepperCases.id, data.caseId));
+    }
+    const base = process.env.PUBLIC_BASE_URL ?? "/InvestorAssistant";
+    const url = `${base}/v2/onboarding?resume=${encodeURIComponent(token)}`;
+    if (process.env.RESUME_EMAIL_PROVIDER === "console" || !process.env.RESUME_EMAIL_PROVIDER) {
+      console.log(`[resume-link] To: ${data.email}  URL: ${url}`);
+    }
+    return { url, email: data.email };
+  });
+
+export const getStepperCaseByResumeToken = createServerFn({ method: "GET" })
+  .validator((d: { token: string }) => d)
+  .handler(async ({ data }): Promise<StepperCase> => {
+    const rows = await db.select().from(stepperCases).where(eq(stepperCases.resumeToken, data.token));
+    if (rows.length === 0) throw new Error("Resume token not recognised");
+    return await loadCase(rows[0].id);
+  });
+
 export const listStepperCases = createServerFn({ method: "GET" }).handler(
   async (): Promise<StepperCase[]> => {
     const rows = await db.select().from(stepperCases);
@@ -160,14 +224,19 @@ export const saveProfile = createServerFn({ method: "POST" })
     let c = await loadCase(data.caseId);
     const p = data.profile;
     if (!p.investorName.trim()) throw new Error("Investor name is required");
-    if (!p.primaryContact.trim()) throw new Error("Primary contact name is required");
-    if (!p.primaryContactEmail.trim()) throw new Error("Primary contact email is required");
-    if (!/^\S+@\S+\.\S+$/.test(p.primaryContactEmail)) throw new Error("Primary contact email is not valid");
-    if (!p.jurisdiction.trim()) throw new Error("Jurisdiction is required");
+    if (!p.primaryContactEmail.trim()) throw new Error("Email is required");
+    if (!/^\S+@\S+\.\S+$/.test(p.primaryContactEmail)) throw new Error("Email is not valid");
+    // Default primaryContact to investorName when not provided — for individuals this is the
+    // same person; for entities the user adds a separate contact on the Ownership step.
+    const normalized = {
+      ...p,
+      primaryContact: p.primaryContact?.trim() || p.investorName.trim(),
+      jurisdiction: p.jurisdiction?.trim() ?? "",
+    };
 
     c = {
       ...c,
-      profile: p,
+      profile: normalized,
       steps: {
         ...c.steps,
         profile: { key: "profile", status: "complete", data: {}, completedAt: t() },
@@ -270,6 +339,10 @@ export const saveDeclarations = createServerFn({ method: "POST" })
     if (typeof dec.pepSelf !== "boolean") throw new Error("PEP self-declaration is required");
     if (typeof dec.pepFamily !== "boolean") throw new Error("PEP family declaration is required");
     if (typeof dec.pepAssociate !== "boolean") throw new Error("PEP associate declaration is required");
+    if (c.profile && c.profile.legalForm !== "Individual") {
+      if (!dec.fatcaSection?.trim()) throw new Error("FATCA / CRS classification is required for entity investors");
+      if (!dec.fatcaTin?.trim()) throw new Error("FATCA / CRS Tax Identification Number is required for entity investors");
+    }
     if (!dec.attestationsAccepted) throw new Error("You must accept the attestations to continue");
 
     c = {
@@ -317,7 +390,13 @@ export const submitCase = createServerFn({ method: "POST" })
       },
     };
     c = appendAudit(c, "Case submitted to Compliance", `Submitted at ${submittedAt}`, "System");
-    return await persistCase(c);
+    c = appendAudit(c, "Compliance state initialised", "Initial risk score + red flags derived from submission.", "System");
+    const persisted = await persistCase(c);
+    // Compute and persist the initial compliance snapshot. Imported lazily to
+    // avoid pulling the compliance module into every consumer of cases.ts.
+    const { initialiseComplianceForCase } = await import("./compliance");
+    await initialiseComplianceForCase(persisted);
+    return persisted;
   });
 
 export function progressPct(c: StepperCase): number {

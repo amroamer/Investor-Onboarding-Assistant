@@ -2,6 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { randomUUID } from "node:crypto";
 import { loadCaseByCaseId, persistCase } from "./cases";
 import { recomputeProgress } from "@/lib/onboarding/engine";
+import {
+  searchOpenSanctions as searchOpenSanctionsShared,
+  schemaForPartyType,
+  OPENSANCTIONS_PROVIDER,
+} from "./opensanctions";
 import type {
   OnboardingCase,
   NameToScreen,
@@ -9,8 +14,7 @@ import type {
   AuditEvent,
 } from "@/lib/onboarding/types";
 
-const OPENSANCTIONS_BASE = process.env.OPENSANCTIONS_BASE_URL ?? "https://api.opensanctions.org";
-const PROVIDER = "OpenSanctions";
+const PROVIDER = OPENSANCTIONS_PROVIDER;
 
 const id = (prefix: string) => `${prefix}_${randomUUID().slice(0, 8)}`;
 const now = () => new Date().toISOString();
@@ -19,64 +23,17 @@ function audit(actor: AuditEvent["actor"], type: string, detail: string): AuditE
   return { id: id("au"), at: now(), actor, type, detail };
 }
 
-interface OpenSanctionsResult {
-  id: string;
-  schema: string;
-  caption: string;
-  score?: number;
-  properties?: {
-    birthDate?: string[];
-    country?: string[];
-    sourceUrl?: string[];
-    [key: string]: string[] | undefined;
-  };
-  datasets?: string[];
-  countries?: string[];
-  topics?: string[];
-}
-
-interface OpenSanctionsResponse {
-  results?: OpenSanctionsResult[];
-}
-
-/** Calls the OpenSanctions /search endpoint for one name and returns parsed matches. */
+/**
+ * Thin re-export of the shared client, kept so existing callers and tests
+ * don't have to change. The legacy `ScreeningMatch` shape happens to be
+ * identical to `OpenSanctionsMatch`, so the cast is a no-op.
+ */
 export async function searchOpenSanctions(
   name: string,
   opts?: { schema?: "Person" | "Organization" | "LegalEntity"; limit?: number; fetchFn?: typeof fetch },
 ): Promise<ScreeningMatch[]> {
-  const trimmed = name.trim();
-  if (!trimmed) return [];
-  const url = new URL(`${OPENSANCTIONS_BASE}/search/default`);
-  url.searchParams.set("q", trimmed);
-  if (opts?.schema) url.searchParams.set("schema", opts.schema);
-  url.searchParams.set("limit", String(opts?.limit ?? 5));
-
-  const f = opts?.fetchFn ?? fetch;
-  const response = await f(url.toString(), {
-    headers: { Accept: "application/json", "User-Agent": "investor-onboarding-assistant/1.0" },
-  });
-  if (!response.ok) {
-    throw new Error(`OpenSanctions ${response.status}: ${response.statusText}`);
-  }
-  const body = (await response.json()) as OpenSanctionsResponse;
-  const results = body.results ?? [];
-
-  return results.map<ScreeningMatch>((r) => ({
-    id: r.id,
-    caption: r.caption,
-    score: typeof r.score === "number" ? r.score : 0,
-    topics: r.topics ?? [],
-    countries: r.countries ?? r.properties?.country ?? [],
-    datasets: r.datasets ?? [],
-    birthDate: r.properties?.birthDate?.[0],
-    sourceUrl: r.properties?.sourceUrl?.[0] ?? `https://www.opensanctions.org/entities/${r.id}/`,
-  }));
-}
-
-function schemaForPartyType(partyType: string): "Person" | "Organization" | "LegalEntity" {
-  if (partyType === "Individual") return "Person";
-  if (partyType === "Entity") return "LegalEntity";
-  return "LegalEntity";
+  const results = await searchOpenSanctionsShared(name, opts);
+  return results as unknown as ScreeningMatch[];
 }
 
 /** Promote new related parties (from validation) into namesToScreen with status "Ready for screening". */

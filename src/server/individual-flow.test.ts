@@ -69,7 +69,6 @@ function newIndividualCase(): OnboardingCase {
 
 function classified(overrides: Partial<ClassifiedDoc> & Pick<ClassifiedDoc, "document_type">): ClassifiedDoc {
   return {
-    document_type: overrides.document_type,
     confidence: "high",
     summary: "",
     party_name: "Amelia Rose Brooks",
@@ -89,6 +88,27 @@ function classified(overrides: Partial<ClassifiedDoc> & Pick<ClassifiedDoc, "doc
     incorporation_date: "",
     general_partner: "",
     ownership_holders: [],
+    sow_primary_source: "",
+    sow_secondary_source: "",
+    sow_net_worth_range: "",
+    sow_accumulation_period: "",
+    sow_narrative: "",
+    sof_bank_name: "",
+    sof_account_reference: "",
+    sof_currency: "",
+    sof_closing_balance: "",
+    sof_subscription_amount: "",
+    sof_narrative: "",
+    tax_primary_residence: "",
+    tax_additional_residences: "",
+    tax_is_us_person: "unknown",
+    tax_us_tin: "",
+    tax_local_tin: "",
+    fatca_classification: "unknown",
+    pep_self: "unknown",
+    pep_family: "unknown",
+    pep_associate: "unknown",
+    pep_detail: "",
     ...overrides,
   };
 }
